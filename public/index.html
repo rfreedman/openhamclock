@@ -480,56 +480,43 @@
       useEffect(() => {
         const fetchDX = async () => {
           try {
-            // Try our proxy endpoint first (works when running via server.js)
-            let response = await fetch('/api/dxcluster/spots').catch(() => null);
+            // Use our proxy endpoint (works when running via server.js)
+            const response = await fetch('/api/dxcluster/spots');
             
-            if (response && response.ok) {
+            if (response.ok) {
               const spots = await response.json();
               if (spots && spots.length > 0) {
                 setData(spots.slice(0, 15).map(s => ({
-                  freq: s.frequency ? (parseFloat(s.frequency) / 1000).toFixed(3) : s.freq,
-                  call: s.dx_call || s.call,
+                  freq: s.freq || (s.frequency ? (parseFloat(s.frequency) / 1000).toFixed(3) : '0.000'),
+                  call: s.call || s.dx_call || 'UNKNOWN',
                   comment: s.comment || s.info || '',
-                  time: s.time ? s.time.substr(11, 5) + 'z' : new Date().toISOString().substr(11, 5) + 'z',
+                  time: s.time || new Date().toISOString().substr(11, 5) + 'z',
                   spotter: s.spotter || ''
                 })));
-                setLoading(false);
-                return;
+              } else {
+                setData([{
+                  freq: '---',
+                  call: 'NO SPOTS',
+                  comment: 'No DX spots available',
+                  time: '--:--z',
+                  spotter: ''
+                }]);
               }
-            }
-
-            // Fallback: Try HamAlert/DXWatch direct (may have CORS issues)
-            response = await fetch('https://www.dxwatch.com/api/spots.json?limit=15', {
-              mode: 'cors',
-              headers: { 'Accept': 'application/json' }
-            }).catch(() => null);
-            
-            if (response && response.ok) {
-              const spots = await response.json();
-              setData(spots.slice(0, 15).map(s => ({
-                freq: (parseFloat(s.frequency) / 1000).toFixed(3),
-                call: s.dx_call,
-                comment: s.comment || s.info || '',
-                time: s.time ? s.time.substr(11, 5) + 'z' : '',
-                spotter: s.spotter
-              })));
             } else {
-              // Final fallback: PSKReporter-style data simulation based on real bands
-              // This shows the structure but indicates no live connection
               setData([{
                 freq: '---',
-                call: 'NO DATA',
-                comment: 'Connect via server.js for live spots',
+                call: 'OFFLINE',
+                comment: 'DX cluster unavailable',
                 time: '--:--z',
                 spotter: ''
               }]);
             }
           } catch (err) { 
-            console.error('DX error:', err);
+            console.error('DX Cluster error:', err);
             setData([{
               freq: '---',
               call: 'ERROR',
-              comment: 'Could not fetch DX spots',
+              comment: 'Could not connect to DX cluster',
               time: '--:--z',
               spotter: ''
             }]);
