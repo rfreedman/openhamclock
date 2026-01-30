@@ -606,6 +606,143 @@
     };
 
     // ============================================
+    // CONTEST CALENDAR HOOK
+    // ============================================
+    const useContests = () => {
+      const [data, setData] = useState([]);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        const fetchContests = async () => {
+          try {
+            // Try our proxy endpoint first
+            const response = await fetch('/api/contests');
+            
+            if (response.ok) {
+              const contests = await response.json();
+              if (contests && contests.length > 0) {
+                setData(contests.slice(0, 10));
+              } else {
+                // No contests from API, use calculated upcoming contests
+                setData(getUpcomingContests());
+              }
+            } else {
+              setData(getUpcomingContests());
+            }
+          } catch (err) {
+            console.error('Contest fetch error:', err);
+            setData(getUpcomingContests());
+          } finally {
+            setLoading(false);
+          }
+        };
+        
+        fetchContests();
+        const interval = setInterval(fetchContests, 3600000); // Refresh every hour
+        return () => clearInterval(interval);
+      }, []);
+
+      return { data, loading };
+    };
+
+    // Calculate upcoming major contests based on typical schedule
+    const getUpcomingContests = () => {
+      const now = new Date();
+      const contests = [];
+      
+      // Major contest schedule (approximate - these follow patterns)
+      const majorContests = [
+        { name: 'CQ WW DX CW', month: 10, weekend: 4, duration: 48 }, // Last full weekend Nov
+        { name: 'CQ WW DX SSB', month: 9, weekend: 4, duration: 48 }, // Last full weekend Oct
+        { name: 'ARRL DX CW', month: 1, weekend: 3, duration: 48 }, // 3rd full weekend Feb
+        { name: 'ARRL DX SSB', month: 2, weekend: 1, duration: 48 }, // 1st full weekend Mar
+        { name: 'CQ WPX SSB', month: 2, weekend: 4, duration: 48 }, // Last full weekend Mar
+        { name: 'CQ WPX CW', month: 4, weekend: 4, duration: 48 }, // Last full weekend May
+        { name: 'IARU HF Championship', month: 6, weekend: 2, duration: 24 }, // 2nd full weekend Jul
+        { name: 'ARRL Field Day', month: 5, weekend: 4, duration: 24 }, // 4th full weekend Jun
+        { name: 'ARRL Sweepstakes CW', month: 10, weekend: 1, duration: 24 }, // 1st full weekend Nov
+        { name: 'ARRL Sweepstakes SSB', month: 10, weekend: 3, duration: 24 }, // 3rd full weekend Nov
+        { name: 'ARRL 10m Contest', month: 11, weekend: 2, duration: 48 }, // 2nd full weekend Dec
+        { name: 'ARRL RTTY Roundup', month: 0, weekend: 1, duration: 24 }, // 1st full weekend Jan
+        { name: 'NA QSO Party CW', month: 0, weekend: 2, duration: 12 }, // 2nd full weekend Jan
+        { name: 'NA QSO Party SSB', month: 0, weekend: 3, duration: 12 }, // 3rd full weekend Jan
+        { name: 'CQ 160m CW', month: 0, weekend: 4, duration: 48 }, // Last full weekend Jan
+        { name: 'Winter Field Day', month: 0, weekend: 4, duration: 24 }, // Last full weekend Jan
+      ];
+
+      // Weekly/recurring contests
+      const weeklyContests = [
+        { name: 'CWT Mini-Test', day: 3, time: '13:00z', duration: 1 }, // Wednesday
+        { name: 'CWT Mini-Test', day: 3, time: '19:00z', duration: 1 }, // Wednesday
+        { name: 'CWT Mini-Test', day: 3, time: '03:00z', duration: 1 }, // Thursday morning UTC
+        { name: 'NCCC Sprint', day: 5, time: '03:30z', duration: 0.5 }, // Friday
+        { name: 'K1USN SST', day: 1, time: '00:00z', duration: 1 }, // Monday
+        { name: 'ICWC MST', day: 1, time: '15:00z', duration: 1 }, // Monday
+      ];
+
+      // Get next occurrence of weekly contests
+      weeklyContests.forEach(contest => {
+        const next = new Date(now);
+        const daysUntil = (contest.day - now.getUTCDay() + 7) % 7;
+        next.setUTCDate(next.getUTCDate() + (daysUntil === 0 ? 7 : daysUntil));
+        const [hours, mins] = contest.time.replace('z', '').split(':');
+        next.setUTCHours(parseInt(hours), parseInt(mins), 0, 0);
+        
+        if (next > now) {
+          contests.push({
+            name: contest.name,
+            start: next.toISOString(),
+            end: new Date(next.getTime() + contest.duration * 3600000).toISOString(),
+            mode: contest.name.includes('CW') ? 'CW' : 'Mixed',
+            status: 'upcoming'
+          });
+        }
+      });
+
+      // Calculate next major contest dates
+      majorContests.forEach(contest => {
+        const year = now.getFullYear();
+        for (let y = year; y <= year + 1; y++) {
+          const date = getNthWeekendOfMonth(y, contest.month, contest.weekend);
+          const endDate = new Date(date.getTime() + contest.duration * 3600000);
+          
+          if (endDate > now) {
+            const status = now >= date && now <= endDate ? 'active' : 'upcoming';
+            contests.push({
+              name: contest.name,
+              start: date.toISOString(),
+              end: endDate.toISOString(),
+              mode: contest.name.includes('CW') ? 'CW' : contest.name.includes('SSB') ? 'SSB' : contest.name.includes('RTTY') ? 'RTTY' : 'Mixed',
+              status: status
+            });
+            break;
+          }
+        }
+      });
+
+      // Sort by start date and return top 10
+      return contests
+        .sort((a, b) => new Date(a.start) - new Date(b.start))
+        .slice(0, 10);
+    };
+
+    // Helper to get nth weekend of a month
+    const getNthWeekendOfMonth = (year, month, n) => {
+      const date = new Date(Date.UTC(year, month, 1, 0, 0, 0));
+      let weekendCount = 0;
+      
+      while (weekendCount < n) {
+        if (date.getUTCDay() === 6) { // Saturday
+          weekendCount++;
+          if (weekendCount === n) break;
+        }
+        date.setUTCDate(date.getUTCDate() + 1);
+      }
+      
+      return date;
+    };
+
+    // ============================================
     // LEAFLET MAP COMPONENT
     // ============================================
     const WorldMap = ({ deLocation, dxLocation, onDXChange, potaSpots }) => {
@@ -995,6 +1132,330 @@
     );
 
     // ============================================
+    // CONTEST CALENDAR PANEL
+    // ============================================
+    const ContestPanel = ({ contests, loading }) => {
+      const formatContestTime = (isoString) => {
+        const date = new Date(isoString);
+        const now = new Date();
+        const diffMs = date - now;
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffHours / 24);
+        
+        if (diffMs < 0) {
+          // Contest is active or past
+          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        } else if (diffHours < 24) {
+          return `In ${diffHours}h`;
+        } else if (diffDays < 7) {
+          return `In ${diffDays}d`;
+        } else {
+          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+      };
+
+      const getStatusColor = (contest) => {
+        if (contest.status === 'active') return 'var(--accent-green)';
+        const start = new Date(contest.start);
+        const now = new Date();
+        const hoursUntil = (start - now) / 3600000;
+        if (hoursUntil < 24) return 'var(--accent-amber)';
+        return 'var(--text-secondary)';
+      };
+
+      const getModeColor = (mode) => {
+        switch(mode) {
+          case 'CW': return 'var(--accent-cyan)';
+          case 'SSB': return 'var(--accent-amber)';
+          case 'RTTY': return 'var(--accent-purple)';
+          default: return 'var(--text-secondary)';
+        }
+      };
+
+      return (
+        <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '20px', backdropFilter: 'blur(10px)' }}>
+          <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-cyan)', letterSpacing: '2px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>🏆 CONTESTS</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {loading && <div className="loading-spinner" />}
+            </div>
+          </div>
+          <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+            {contests.length > 0 ? contests.map((c, i) => (
+              <div key={i} style={{ 
+                padding: '8px 0', 
+                borderBottom: '1px solid rgba(255,255,255,0.03)', 
+                fontFamily: 'JetBrains Mono, monospace', 
+                fontSize: '11px',
+                borderLeft: c.status === 'active' ? '3px solid var(--accent-green)' : 'none',
+                paddingLeft: c.status === 'active' ? '8px' : '0'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: getStatusColor(c), fontWeight: c.status === 'active' ? '700' : '400' }}>
+                    {c.name}
+                    {c.status === 'active' && <span style={{ marginLeft: '6px', animation: 'blink 1s infinite' }}>●</span>}
+                  </span>
+                  <span style={{ color: getModeColor(c.mode), fontSize: '9px', padding: '2px 6px', background: 'var(--bg-tertiary)', borderRadius: '3px' }}>
+                    {c.mode}
+                  </span>
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '10px', marginTop: '2px' }}>
+                  {c.status === 'active' ? 'NOW' : formatContestTime(c.start)}
+                </div>
+              </div>
+            )) : (
+              <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>
+                No upcoming contests
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    // ============================================
+    // LEGACY LAYOUT (Classic HamClock Style)
+    // ============================================
+    const LegacyLayout = ({ 
+      config, currentTime, utcTime, utcDate, localTime, localDate,
+      deGrid, dxGrid, deSunTimes, dxSunTimes, dxLocation, onDXChange,
+      spaceWeather, bandConditions, potaSpots, dxCluster, contests,
+      onSettingsClick
+    }) => {
+      const bearing = calculateBearing(config.location.lat, config.location.lon, dxLocation.lat, dxLocation.lon);
+      const distance = calculateDistance(config.location.lat, config.location.lon, dxLocation.lat, dxLocation.lon);
+
+      const panelStyle = {
+        background: 'var(--bg-panel)',
+        border: '1px solid var(--border-color)',
+        padding: '8px 12px',
+        fontFamily: 'JetBrains Mono, monospace'
+      };
+
+      const labelStyle = {
+        fontSize: '10px',
+        color: 'var(--accent-green)',
+        fontWeight: '700',
+        letterSpacing: '1px'
+      };
+
+      const valueStyle = {
+        fontSize: '14px',
+        color: 'var(--text-primary)',
+        fontWeight: '600'
+      };
+
+      const bigValueStyle = {
+        fontSize: '32px',
+        color: 'var(--accent-green)',
+        fontWeight: '700',
+        fontFamily: 'Orbitron, JetBrains Mono, monospace',
+        textShadow: '0 0 10px var(--accent-green-dim)'
+      };
+
+      return (
+        <div style={{ 
+          height: '100vh', 
+          background: 'var(--bg-primary)', 
+          display: 'grid',
+          gridTemplateColumns: '200px 1fr 220px',
+          gridTemplateRows: 'auto 1fr auto',
+          gap: '2px',
+          padding: '2px',
+          overflow: 'hidden'
+        }}>
+          {/* TOP LEFT - Callsign & Time */}
+          <div style={{ ...panelStyle, gridRow: '1', gridColumn: '1', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <div 
+              style={{ fontSize: '28px', color: 'var(--accent-green)', fontWeight: '900', cursor: 'pointer', fontFamily: 'Orbitron, monospace' }}
+              onClick={onSettingsClick}
+              title="Click to change settings"
+            >
+              {config.callsign}
+            </div>
+            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              SFI {spaceWeather.data?.solarFlux || '--'} • K{spaceWeather.data?.kIndex || '-'} • SSN {spaceWeather.data?.sunspotNumber || '--'}
+            </div>
+          </div>
+
+          {/* TOP CENTER - Large Clock */}
+          <div style={{ ...panelStyle, gridRow: '1', gridColumn: '2', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '40px' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={bigValueStyle}>{utcTime}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{utcDate} UTC</div>
+            </div>
+            <div style={{ width: '1px', height: '40px', background: 'var(--border-color)' }} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ ...bigValueStyle, color: 'var(--accent-amber)', textShadow: '0 0 10px var(--accent-amber-dim)' }}>{localTime}</div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{localDate} Local</div>
+            </div>
+          </div>
+
+          {/* TOP RIGHT - Space Weather */}
+          <div style={{ ...panelStyle, gridRow: '1', gridColumn: '3' }}>
+            <div style={labelStyle}>☀ SOLAR CONDITIONS</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
+              <div>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>SFI</div>
+                <div style={{ fontSize: '18px', color: 'var(--accent-amber)', fontWeight: '700' }}>{spaceWeather.data?.solarFlux || '--'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>K-Index</div>
+                <div style={{ fontSize: '18px', color: parseInt(spaceWeather.data?.kIndex) > 4 ? 'var(--accent-red)' : 'var(--accent-green)', fontWeight: '700' }}>{spaceWeather.data?.kIndex || '-'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>SSN</div>
+                <div style={{ fontSize: '18px', color: 'var(--text-primary)', fontWeight: '700' }}>{spaceWeather.data?.sunspotNumber || '--'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Conditions</div>
+                <div style={{ fontSize: '12px', color: spaceWeather.data?.conditions === 'GOOD' || spaceWeather.data?.conditions === 'EXCELLENT' ? 'var(--accent-green)' : 'var(--accent-amber)', fontWeight: '700' }}>{spaceWeather.data?.conditions || '--'}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* LEFT SIDEBAR - DE/DX Info */}
+          <div style={{ ...panelStyle, gridRow: '2', gridColumn: '1', display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto' }}>
+            {/* DE Section */}
+            <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ ...labelStyle, marginBottom: '8px' }}>DE:</div>
+              <div style={{ fontSize: '16px', color: 'var(--accent-green)', fontWeight: '700' }}>{deGrid}</div>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                {config.location.lat.toFixed(2)}°{config.location.lat >= 0 ? 'N' : 'S'}, {config.location.lon.toFixed(2)}°{config.location.lon >= 0 ? 'E' : 'W'}
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                ☀↑ {deSunTimes.sunrise}z ☀↓ {deSunTimes.sunset}z
+              </div>
+            </div>
+
+            {/* DX Section */}
+            <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+              <div style={{ ...labelStyle, marginBottom: '8px', color: 'var(--accent-cyan)' }}>DX:</div>
+              <div style={{ fontSize: '16px', color: 'var(--accent-cyan)', fontWeight: '700' }}>{dxGrid}</div>
+              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                {dxLocation.lat.toFixed(2)}°{dxLocation.lat >= 0 ? 'N' : 'S'}, {dxLocation.lon.toFixed(2)}°{dxLocation.lon >= 0 ? 'E' : 'W'}
+              </div>
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                ☀↑ {dxSunTimes.sunrise}z ☀↓ {dxSunTimes.sunset}z
+              </div>
+            </div>
+
+            {/* Path Info */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>SP:</span>
+                <span style={{ fontSize: '12px', color: 'var(--accent-amber)', fontWeight: '600' }}>{bearing.toFixed(0)}°</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>LP:</span>
+                <span style={{ fontSize: '12px', color: 'var(--accent-amber)', fontWeight: '600' }}>{((bearing + 180) % 360).toFixed(0)}°</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Dist:</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: '600' }}>{Math.round(distance).toLocaleString()} km</span>
+              </div>
+            </div>
+
+            {/* Band Conditions - Compact */}
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ ...labelStyle, marginBottom: '8px' }}>📡 BANDS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px' }}>
+                {bandConditions.data.slice(0, 9).map((b, i) => {
+                  const color = b.condition === 'GOOD' ? 'var(--accent-green)' : b.condition === 'FAIR' ? 'var(--accent-amber)' : 'var(--accent-red)';
+                  return (
+                    <div key={i} style={{ textAlign: 'center', padding: '2px', background: 'var(--bg-tertiary)', borderRadius: '2px' }}>
+                      <div style={{ fontSize: '9px', color }}>{b.band}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* CENTER - Map */}
+          <div style={{ ...panelStyle, gridRow: '2', gridColumn: '2', padding: '0', position: 'relative' }}>
+            <WorldMap 
+              deLocation={config.location} 
+              dxLocation={dxLocation} 
+              onDXChange={onDXChange} 
+              potaSpots={potaSpots.data} 
+            />
+          </div>
+
+          {/* RIGHT SIDEBAR - DX Cluster & Contests */}
+          <div style={{ ...panelStyle, gridRow: '2', gridColumn: '3', display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto' }}>
+            {/* DX Cluster */}
+            <div>
+              <div style={{ ...labelStyle, marginBottom: '8px' }}>🌐 DX CLUSTER <span style={{ color: 'var(--accent-green)', fontSize: '8px' }}>● LIVE</span></div>
+              <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                {dxCluster.data.slice(0, 8).map((s, i) => (
+                  <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ color: 'var(--accent-green)' }}>{s.freq}</span>
+                      <span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{s.call}</span>
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.comment}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Contests */}
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ ...labelStyle, marginBottom: '8px' }}>🏆 CONTESTS</div>
+              <div style={{ maxHeight: '140px', overflowY: 'auto' }}>
+                {contests.data.slice(0, 5).map((c, i) => (
+                  <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px' }}>
+                    <div style={{ color: c.status === 'active' ? 'var(--accent-green)' : 'var(--text-secondary)', fontWeight: c.status === 'active' ? '700' : '400' }}>
+                      {c.name} {c.status === 'active' && <span style={{ animation: 'blink 1s infinite' }}>●</span>}
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '9px' }}>
+                      {c.mode} • {new Date(c.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* POTA */}
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ ...labelStyle, marginBottom: '8px' }}>🏕 POTA</div>
+              <div style={{ maxHeight: '100px', overflowY: 'auto' }}>
+                {potaSpots.data.slice(0, 4).map((a, i) => (
+                  <div key={i} style={{ padding: '3px 0', fontSize: '10px' }}>
+                    <span style={{ color: 'var(--accent-amber)' }}>{a.call}</span>
+                    <span style={{ color: 'var(--accent-purple)', marginLeft: '4px' }}>{a.ref}</span>
+                    <span style={{ color: 'var(--accent-green)', marginLeft: '4px' }}>{a.freq}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* BOTTOM - Footer */}
+          <div style={{ ...panelStyle, gridRow: '3', gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 12px' }}>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+              OpenHamClock v3.3.0 • In memory of Elwood Downey WB0OEW
+            </span>
+            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+              Click map to set DX • 73 de {config.callsign}
+            </span>
+            <button
+              onClick={onSettingsClick}
+              style={{
+                background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
+                padding: '4px 10px', borderRadius: '4px', color: 'var(--text-secondary)',
+                fontSize: '10px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace'
+              }}
+            >
+              ⚙ Settings
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    // ============================================
     // SETTINGS PANEL COMPONENT
     // ============================================
     const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
@@ -1327,6 +1788,7 @@
       const bandConditions = useBandConditions();
       const potaSpots = usePOTASpots();
       const dxCluster = useDXCluster();
+      const contests = useContests();
 
       const deGrid = useMemo(() => calculateGridSquare(config.location.lat, config.location.lon), [config.location]);
       const dxGrid = useMemo(() => calculateGridSquare(dxLocation.lat, dxLocation.lon), [dxLocation]);
@@ -1354,36 +1816,99 @@
       const utcDate = currentTime.toISOString().substr(0, 10);
       const localDate = currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
+      // Use Legacy Layout if selected
+      if (config.layout === 'legacy') {
+        return (
+          <>
+            <LegacyLayout
+              config={config}
+              currentTime={currentTime}
+              utcTime={utcTime}
+              utcDate={utcDate}
+              localTime={localTime}
+              localDate={localDate}
+              deGrid={deGrid}
+              dxGrid={dxGrid}
+              deSunTimes={deSunTimes}
+              dxSunTimes={dxSunTimes}
+              dxLocation={dxLocation}
+              onDXChange={handleDXChange}
+              spaceWeather={spaceWeather}
+              bandConditions={bandConditions}
+              potaSpots={potaSpots}
+              dxCluster={dxCluster}
+              contests={contests}
+              onSettingsClick={() => setShowSettings(true)}
+            />
+            <SettingsPanel 
+              isOpen={showSettings} 
+              onClose={() => setShowSettings(false)} 
+              config={config}
+              onSave={handleSaveConfig}
+            />
+          </>
+        );
+      }
+
+      // Modern Layout (default)
       return (
         <div style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
-          <Header callsign={config.callsign} uptime={uptime} version="3.2.0" onSettingsClick={() => setShowSettings(true)} />
+          <Header callsign={config.callsign} uptime={uptime} version="3.3.0" onSettingsClick={() => setShowSettings(true)} />
           
-          <main style={{ padding: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gridTemplateRows: 'auto 1fr auto', gap: '16px', maxWidth: '1800px', margin: '0 auto', minHeight: 'calc(100vh - 120px)' }}>
+          <main style={{ padding: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gridTemplateRows: 'auto 1fr auto', gap: '16px', maxWidth: '1920px', margin: '0 auto', minHeight: 'calc(100vh - 120px)' }}>
             {/* Row 1 */}
             <ClockPanel label="UTC Time" time={utcTime} date={utcDate} isUtc={true} />
             <ClockPanel label="Local Time" time={localTime} date={localDate} isUtc={false} />
             <LocationPanel type="DE" location={config.location} gridSquare={deGrid} sunTimes={deSunTimes} otherLocation={dxLocation} />
+            <LocationPanel type="DX" location={dxLocation} gridSquare={dxGrid} sunTimes={dxSunTimes} otherLocation={config.location} />
             
-            {/* Row 2: Map */}
-            <div style={{ gridColumn: 'span 2', minHeight: '350px' }}>
+            {/* Row 2: Map + Side Panel */}
+            <div style={{ gridColumn: 'span 3', minHeight: '400px' }}>
               <WorldMap deLocation={config.location} dxLocation={dxLocation} onDXChange={handleDXChange} potaSpots={potaSpots.data} />
               <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '8px', fontFamily: 'JetBrains Mono', textAlign: 'center' }}>
                 Click anywhere on map to set DX location • Use buttons to change map style
               </div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <LocationPanel type="DX" location={dxLocation} gridSquare={dxGrid} sunTimes={dxSunTimes} otherLocation={config.location} />
               <SpaceWeatherPanel data={spaceWeather.data} loading={spaceWeather.loading} />
+              <ContestPanel contests={contests.data} loading={contests.loading} />
             </div>
             
             {/* Row 3 */}
             <BandConditionsPanel bands={bandConditions.data} loading={bandConditions.loading} />
             <DXClusterPanel spots={dxCluster.data} loading={dxCluster.loading} />
             <POTAPanel activities={potaSpots.data} loading={potaSpots.loading} />
+            <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '20px', backdropFilter: 'blur(10px)' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-purple)', letterSpacing: '2px', marginBottom: '16px' }}>
+                📊 QUICK STATS
+              </div>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '11px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Active Contests</span>
+                  <span style={{ color: 'var(--accent-green)', fontWeight: '600' }}>{contests.data.filter(c => c.status === 'active').length}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>POTA Activators</span>
+                  <span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{potaSpots.data.length}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>DX Spots</span>
+                  <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}>{dxCluster.data.length}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Solar Flux</span>
+                  <span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{spaceWeather.data?.solarFlux || '--'}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Uptime</span>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>{uptime}</span>
+                </div>
+              </div>
+            </div>
           </main>
 
           <footer style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '11px', fontFamily: 'JetBrains Mono, monospace' }}>
-            OpenHamClock v3.2.0 | In memory of Elwood Downey WB0OEW | Map tiles © OpenStreetMap, ESRI, CARTO | 73 de {config.callsign}
+            OpenHamClock v3.3.0 | In memory of Elwood Downey WB0OEW | Map tiles © OpenStreetMap, ESRI, CARTO | 73 de {config.callsign}
           </footer>
 
           {/* Settings Panel */}
