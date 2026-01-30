@@ -170,7 +170,7 @@
     .leaflet-control-attribution {
       background: rgba(10, 14, 20, 0.8) !important;
       color: var(--text-muted) !important;
-      font-size: 9px !important;
+      font-size: 11px !important;
     }
     
     .leaflet-control-attribution a {
@@ -184,7 +184,7 @@
       justify-content: center;
       font-family: 'JetBrains Mono', monospace;
       font-weight: 700;
-      font-size: 10px;
+      font-size: 12px;
       border-radius: 50%;
       border: 2px solid white;
       box-shadow: 0 0 10px rgba(0,0,0,0.5);
@@ -228,7 +228,7 @@
       color: var(--text-secondary);
       padding: 8px 12px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
+      font-size: 12px;
       cursor: pointer;
       transition: all 0.2s;
       border-radius: 4px;
@@ -276,7 +276,7 @@
     }
     
     .panel-header {
-      font-size: 10px;
+      font-size: 12px;
       font-weight: 700;
       color: var(--accent-cyan);
       margin-bottom: 8px;
@@ -873,7 +873,7 @@
         <div className="panel" style={{ cursor: 'pointer' }} onClick={() => setViewMode(v => v === 'bars' ? 'chart' : 'bars')}>
           <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>📡 VOACAP DE-DX</span>
-            <span style={{ fontSize: '9px', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
               {viewMode === 'bars' ? '▦ bars' : '▤ chart'} • click to toggle
             </span>
           </div>
@@ -887,7 +887,7 @@
                 gridTemplateColumns: '28px repeat(24, 1fr)',
                 gridTemplateRows: `repeat(${bands.length}, 12px)`,
                 gap: '1px',
-                fontSize: '8px',
+                fontSize: '12px',
                 fontFamily: 'JetBrains Mono, monospace'
               }}>
                 {bands.map((band, bandIdx) => (
@@ -899,7 +899,7 @@
                       justifyContent: 'flex-end',
                       paddingRight: '4px',
                       color: 'var(--text-muted)',
-                      fontSize: '8px'
+                      fontSize: '12px'
                     }}>
                       {band.replace('m', '')}
                     </div>
@@ -929,7 +929,7 @@
                 display: 'grid', 
                 gridTemplateColumns: '28px repeat(24, 1fr)',
                 marginTop: '2px',
-                fontSize: '7px',
+                fontSize: '9px',
                 color: 'var(--text-muted)'
               }}>
                 <div>UTC</div>
@@ -944,7 +944,7 @@
                 display: 'flex', 
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                fontSize: '8px'
+                fontSize: '12px'
               }}>
                 <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-muted)' }}>REL:</span>
@@ -962,7 +962,7 @@
             </div>
           ) : (
             /* Bar Chart View */
-            <div style={{ fontSize: '11px' }}>
+            <div style={{ fontSize: '13px' }}>
               {/* Solar quick stats */}
               <div style={{ 
                 display: 'flex', 
@@ -971,7 +971,7 @@
                 marginBottom: '4px',
                 background: 'var(--bg-tertiary)',
                 borderRadius: '4px',
-                fontSize: '10px'
+                fontSize: '12px'
               }}>
                 <span><span style={{ color: 'var(--text-muted)' }}>SFI </span><span style={{ color: 'var(--accent-amber)' }}>{solarData.sfi}</span></span>
                 <span><span style={{ color: 'var(--text-muted)' }}>SSN </span><span style={{ color: 'var(--accent-cyan)' }}>{solarData.ssn}</span></span>
@@ -988,7 +988,7 @@
                 }}>
                   <span style={{ 
                     fontFamily: 'JetBrains Mono, monospace',
-                    fontSize: '10px',
+                    fontSize: '12px',
                     color: band.reliability >= 50 ? 'var(--accent-green)' : 'var(--text-muted)'
                   }}>
                     {band.band}
@@ -1006,7 +1006,7 @@
                   </div>
                   <span style={{ 
                     textAlign: 'right',
-                    fontSize: '9px',
+                    fontSize: '13px',
                     color: getStatusColor(band.status)
                   }}>
                     {band.reliability}%
@@ -1046,7 +1046,7 @@
             alignItems: 'center',
             marginBottom: '6px'
           }}>
-            <span style={{ fontSize: '10px', color: 'var(--accent-amber)', fontWeight: '700' }}>☀ SOLAR</span>
+            <span style={{ fontSize: '12px', color: 'var(--accent-amber)', fontWeight: '700' }}>☀ SOLAR</span>
             <select 
               value={imageType}
               onChange={(e) => setImageType(e.target.value)}
@@ -1055,7 +1055,7 @@
                 background: 'var(--bg-tertiary)',
                 border: '1px solid var(--border-color)',
                 color: 'var(--text-secondary)',
-                fontSize: '9px',
+                fontSize: '13px',
                 padding: '2px 4px',
                 borderRadius: '3px',
                 cursor: 'pointer'
@@ -1094,7 +1094,7 @@
           <div style={{ 
             textAlign: 'center', 
             marginTop: '4px', 
-            fontSize: '8px', 
+            fontSize: '12px', 
             color: 'var(--text-muted)' 
           }}>
             SDO/AIA • Live from NASA
@@ -1287,7 +1287,7 @@
           if (spot.lat && spot.lon) {
             const icon = L.divIcon({
               className: '',
-              html: `<div style="background: #aa66ff; color: white; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-family: JetBrains Mono; white-space: nowrap; border: 1px solid white;">${spot.call}</div>`,
+              html: `<div style="background: #aa66ff; color: white; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: JetBrains Mono; white-space: nowrap; border: 1px solid white;">${spot.call}</div>`,
               iconAnchor: [20, 10]
             });
             const marker = L.marker([spot.lat, spot.lon], { icon })
@@ -1356,7 +1356,7 @@
               background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
               borderRadius: '6px', padding: '8px 12px', color: 'var(--text-secondary)',
               cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
-              fontFamily: 'JetBrains Mono, monospace', fontSize: '11px',
+              fontFamily: 'JetBrains Mono, monospace', fontSize: '13px',
               transition: 'all 0.2s'
             }}
             title="Settings"
@@ -1373,7 +1373,7 @@
         background: 'var(--bg-panel)', border: '1px solid var(--border-color)',
         borderRadius: '8px', padding: '16px 24px', backdropFilter: 'blur(10px)'
       }}>
-        <div style={{ fontSize: '11px', fontWeight: '600', color: isUtc ? 'var(--accent-amber)' : 'var(--text-secondary)', letterSpacing: '2px', marginBottom: '8px', textTransform: 'uppercase' }}>{label}</div>
+        <div style={{ fontSize: '13px', fontWeight: '600', color: isUtc ? 'var(--accent-amber)' : 'var(--text-secondary)', letterSpacing: '2px', marginBottom: '8px', textTransform: 'uppercase' }}>{label}</div>
         <div style={{ fontFamily: 'Orbitron, monospace', fontSize: '42px', fontWeight: '700', color: isUtc ? 'var(--accent-amber)' : 'var(--text-primary)', textShadow: isUtc ? '0 0 20px var(--accent-amber-dim)' : 'none', letterSpacing: '3px', lineHeight: 1 }}>{time}</div>
         <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', color: 'var(--text-muted)', marginTop: '6px' }}>{date}</div>
       </div>
@@ -1390,7 +1390,7 @@
           borderRadius: '8px', padding: '16px 20px', backdropFilter: 'blur(10px)'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <div style={{ fontSize: '11px', fontWeight: '700', color: isDE ? 'var(--accent-amber)' : 'var(--accent-blue)', letterSpacing: '3px', padding: '4px 12px', background: isDE ? 'rgba(255,180,50,0.15)' : 'rgba(68,136,255,0.15)', borderRadius: '4px' }}>{type}</div>
+            <div style={{ fontSize: '13px', fontWeight: '700', color: isDE ? 'var(--accent-amber)' : 'var(--accent-blue)', letterSpacing: '3px', padding: '4px 12px', background: isDE ? 'rgba(255,180,50,0.15)' : 'rgba(68,136,255,0.15)', borderRadius: '4px' }}>{type}</div>
             <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '18px', fontWeight: '700', color: 'var(--accent-green)', textShadow: '0 0 10px var(--accent-green-dim)' }}>{gridSquare}</div>
           </div>
           <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
@@ -1440,7 +1440,7 @@
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                   <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{item.label}</span>
                   <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '16px', fontWeight: '600', color: item.th ? getColor(item.value, item.th) : 'var(--text-primary)' }}>
-                    {item.value}{item.unit && <span style={{ fontSize: '11px', marginLeft: '2px' }}>{item.unit}</span>}
+                    {item.value}{item.unit && <span style={{ fontSize: '13px', marginLeft: '2px' }}>{item.unit}</span>}
                   </span>
                 </div>
               ))}
@@ -1468,7 +1468,7 @@
               return (
                 <div key={i} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: '6px', padding: '10px', textAlign: 'center' }}>
                   <div style={{ fontFamily: 'Orbitron, monospace', fontSize: '14px', fontWeight: '700', color: s.color }}>{b.band}</div>
-                  <div style={{ fontSize: '8px', fontWeight: '600', color: s.color, marginTop: '4px', opacity: 0.8 }}>{b.condition}</div>
+                  <div style={{ fontSize: '12px', fontWeight: '600', color: s.color, marginTop: '4px', opacity: 0.8 }}>{b.condition}</div>
                 </div>
               );
             })}
@@ -1483,12 +1483,12 @@
           <span>🌐 DX CLUSTER</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {loading && <div className="loading-spinner" />}
-            <span style={{ fontSize: '10px', color: 'var(--accent-green)' }}>● LIVE</span>
+            <span style={{ fontSize: '12px', color: 'var(--accent-green)' }}>● LIVE</span>
           </div>
         </div>
         <div style={{ overflowY: 'auto', maxHeight: '200px' }}>
           {spots.map((s, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '65px 75px 1fr auto', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px', alignItems: 'center' }}>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '65px 75px 1fr auto', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px', alignItems: 'center' }}>
               <span style={{ color: 'var(--accent-green)' }}>{s.freq}</span>
               <span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{s.call}</span>
               <span style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.comment}</span>
@@ -1505,12 +1505,12 @@
           <span>🏕 POTA ACTIVITY</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             {loading && <div className="loading-spinner" />}
-            <span style={{ fontSize: '10px', color: 'var(--accent-green)' }}>● LIVE</span>
+            <span style={{ fontSize: '12px', color: 'var(--accent-green)' }}>● LIVE</span>
           </div>
         </div>
         <div style={{ maxHeight: '160px', overflowY: 'auto' }}>
           {activities.length > 0 ? activities.map((a, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)', fontFamily: 'JetBrains Mono, monospace', fontSize: '11px' }}>
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)', fontFamily: 'JetBrains Mono, monospace', fontSize: '13px' }}>
               <div>
                 <span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{a.call}</span>
                 <span style={{ color: 'var(--accent-purple)', marginLeft: '8px' }}>{a.ref}</span>
@@ -1580,7 +1580,7 @@
                 padding: '8px 0', 
                 borderBottom: '1px solid rgba(255,255,255,0.03)', 
                 fontFamily: 'JetBrains Mono, monospace', 
-                fontSize: '11px',
+                fontSize: '13px',
                 borderLeft: c.status === 'active' ? '3px solid var(--accent-green)' : 'none',
                 paddingLeft: c.status === 'active' ? '8px' : '0'
               }}>
@@ -1589,11 +1589,11 @@
                     {c.name}
                     {c.status === 'active' && <span style={{ marginLeft: '6px', animation: 'blink 1s infinite' }}>●</span>}
                   </span>
-                  <span style={{ color: getModeColor(c.mode), fontSize: '9px', padding: '2px 6px', background: 'var(--bg-tertiary)', borderRadius: '3px' }}>
+                  <span style={{ color: getModeColor(c.mode), fontSize: '13px', padding: '2px 6px', background: 'var(--bg-tertiary)', borderRadius: '3px' }}>
                     {c.mode}
                   </span>
                 </div>
-                <div style={{ color: 'var(--text-muted)', fontSize: '10px', marginTop: '2px' }}>
+                <div style={{ color: 'var(--text-muted)', fontSize: '12px', marginTop: '2px' }}>
                   {c.status === 'active' ? 'NOW' : formatContestTime(c.start)}
                 </div>
               </div>
@@ -1627,7 +1627,7 @@
       };
 
       const labelStyle = {
-        fontSize: '10px',
+        fontSize: '12px',
         color: 'var(--accent-green)',
         fontWeight: '700',
         letterSpacing: '1px'
@@ -1667,7 +1667,7 @@
             >
               {config.callsign}
             </div>
-            <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
               SFI {spaceWeather.data?.solarFlux || '--'} • K{spaceWeather.data?.kIndex || '-'} • SSN {spaceWeather.data?.sunspotNumber || '--'}
             </div>
           </div>
@@ -1676,12 +1676,12 @@
           <div style={{ ...panelStyle, gridRow: '1', gridColumn: '2', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '40px' }}>
             <div style={{ textAlign: 'center' }}>
               <div style={bigValueStyle}>{utcTime}</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{utcDate} UTC</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{utcDate} UTC</div>
             </div>
             <div style={{ width: '1px', height: '40px', background: 'var(--border-color)' }} />
             <div style={{ textAlign: 'center' }}>
               <div style={{ ...bigValueStyle, color: 'var(--accent-amber)', textShadow: '0 0 10px var(--accent-amber-dim)' }}>{localTime}</div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{localDate} Local</div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{localDate} Local</div>
             </div>
           </div>
 
@@ -1690,19 +1690,19 @@
             <div style={labelStyle}>☀ SOLAR CONDITIONS</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '8px' }}>
               <div>
-                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>SFI</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>SFI</div>
                 <div style={{ fontSize: '18px', color: 'var(--accent-amber)', fontWeight: '700' }}>{spaceWeather.data?.solarFlux || '--'}</div>
               </div>
               <div>
-                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>K-Index</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>K-Index</div>
                 <div style={{ fontSize: '18px', color: parseInt(spaceWeather.data?.kIndex) > 4 ? 'var(--accent-red)' : 'var(--accent-green)', fontWeight: '700' }}>{spaceWeather.data?.kIndex || '-'}</div>
               </div>
               <div>
-                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>SSN</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>SSN</div>
                 <div style={{ fontSize: '18px', color: 'var(--text-primary)', fontWeight: '700' }}>{spaceWeather.data?.sunspotNumber || '--'}</div>
               </div>
               <div>
-                <div style={{ fontSize: '9px', color: 'var(--text-muted)' }}>Conditions</div>
+                <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Conditions</div>
                 <div style={{ fontSize: '12px', color: spaceWeather.data?.conditions === 'GOOD' || spaceWeather.data?.conditions === 'EXCELLENT' ? 'var(--accent-green)' : 'var(--accent-amber)', fontWeight: '700' }}>{spaceWeather.data?.conditions || '--'}</div>
               </div>
             </div>
@@ -1714,10 +1714,10 @@
             <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
               <div style={{ ...labelStyle, marginBottom: '8px' }}>DE:</div>
               <div style={{ fontSize: '16px', color: 'var(--accent-green)', fontWeight: '700' }}>{deGrid}</div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 {config.location.lat.toFixed(2)}°{config.location.lat >= 0 ? 'N' : 'S'}, {config.location.lon.toFixed(2)}°{config.location.lon >= 0 ? 'E' : 'W'}
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                 ☀↑ {deSunTimes.sunrise}z ☀↓ {deSunTimes.sunset}z
               </div>
             </div>
@@ -1726,10 +1726,10 @@
             <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
               <div style={{ ...labelStyle, marginBottom: '8px', color: 'var(--accent-cyan)' }}>DX:</div>
               <div style={{ fontSize: '16px', color: 'var(--accent-cyan)', fontWeight: '700' }}>{dxGrid}</div>
-              <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 {dxLocation.lat.toFixed(2)}°{dxLocation.lat >= 0 ? 'N' : 'S'}, {dxLocation.lon.toFixed(2)}°{dxLocation.lon >= 0 ? 'E' : 'W'}
               </div>
-              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px' }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                 ☀↑ {dxSunTimes.sunrise}z ☀↓ {dxSunTimes.sunset}z
               </div>
             </div>
@@ -1737,15 +1737,15 @@
             {/* Path Info */}
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>SP:</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>SP:</span>
                 <span style={{ fontSize: '12px', color: 'var(--accent-amber)', fontWeight: '600' }}>{bearing.toFixed(0)}°</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>LP:</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>LP:</span>
                 <span style={{ fontSize: '12px', color: 'var(--accent-amber)', fontWeight: '600' }}>{((bearing + 180) % 360).toFixed(0)}°</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Dist:</span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Dist:</span>
                 <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: '600' }}>{Math.round(distance).toLocaleString()} km</span>
               </div>
             </div>
@@ -1758,7 +1758,7 @@
                   const color = b.condition === 'GOOD' ? 'var(--accent-green)' : b.condition === 'FAIR' ? 'var(--accent-amber)' : 'var(--accent-red)';
                   return (
                     <div key={i} style={{ textAlign: 'center', padding: '2px', background: 'var(--bg-tertiary)', borderRadius: '2px' }}>
-                      <div style={{ fontSize: '9px', color }}>{b.band}</div>
+                      <div style={{ fontSize: '13px', color }}>{b.band}</div>
                     </div>
                   );
                 })}
@@ -1780,15 +1780,15 @@
           <div style={{ ...panelStyle, gridRow: '2', gridColumn: '3', display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto' }}>
             {/* DX Cluster */}
             <div>
-              <div style={{ ...labelStyle, marginBottom: '8px' }}>🌐 DX CLUSTER <span style={{ color: 'var(--accent-green)', fontSize: '8px' }}>● LIVE</span></div>
+              <div style={{ ...labelStyle, marginBottom: '8px' }}>🌐 DX CLUSTER <span style={{ color: 'var(--accent-green)', fontSize: '12px' }}>● LIVE</span></div>
               <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
                 {dxCluster.data.slice(0, 8).map((s, i) => (
-                  <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px' }}>
+                  <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--accent-green)' }}>{s.freq}</span>
                       <span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{s.call}</span>
                     </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.comment}</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.comment}</div>
                   </div>
                 ))}
               </div>
@@ -1799,11 +1799,11 @@
               <div style={{ ...labelStyle, marginBottom: '8px' }}>🏆 CONTESTS</div>
               <div style={{ maxHeight: '140px', overflowY: 'auto' }}>
                 {contests.data.slice(0, 5).map((c, i) => (
-                  <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px' }}>
+                  <div key={i} style={{ padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px' }}>
                     <div style={{ color: c.status === 'active' ? 'var(--accent-green)' : 'var(--text-secondary)', fontWeight: c.status === 'active' ? '700' : '400' }}>
                       {c.name} {c.status === 'active' && <span style={{ animation: 'blink 1s infinite' }}>●</span>}
                     </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '9px' }}>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
                       {c.mode} • {new Date(c.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </div>
                   </div>
@@ -1816,7 +1816,7 @@
               <div style={{ ...labelStyle, marginBottom: '8px' }}>🏕 POTA</div>
               <div style={{ maxHeight: '100px', overflowY: 'auto' }}>
                 {potaSpots.data.slice(0, 4).map((a, i) => (
-                  <div key={i} style={{ padding: '3px 0', fontSize: '10px' }}>
+                  <div key={i} style={{ padding: '3px 0', fontSize: '12px' }}>
                     <span style={{ color: 'var(--accent-amber)' }}>{a.call}</span>
                     <span style={{ color: 'var(--accent-purple)', marginLeft: '4px' }}>{a.ref}</span>
                     <span style={{ color: 'var(--accent-green)', marginLeft: '4px' }}>{a.freq}</span>
@@ -1829,7 +1829,7 @@
             {propagation.data && (
               <div style={{ marginTop: '8px' }}>
                 <div style={{ ...labelStyle, marginBottom: '8px' }}>📡 PROPAGATION</div>
-                <div style={{ fontSize: '10px' }}>
+                <div style={{ fontSize: '12px' }}>
                   {propagation.data.currentBands.slice(0, 6).map((b, i) => (
                     <div key={b.band} style={{ 
                       display: 'flex', 
@@ -1854,7 +1854,7 @@
                         }} />
                       </div>
                       <span style={{ 
-                        fontSize: '9px',
+                        fontSize: '13px',
                         color: b.reliability >= 70 ? '#00ff88' : b.reliability >= 50 ? '#88ff00' : b.reliability >= 30 ? '#ffcc00' : '#ff8800'
                       }}>{b.status.substring(0, 4)}</span>
                     </div>
@@ -1866,10 +1866,10 @@
 
           {/* BOTTOM - Footer */}
           <div style={{ ...panelStyle, gridRow: '3', gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 12px' }}>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               OpenHamClock v3.3.0 • In memory of Elwood Downey WB0OEW
             </span>
-            <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
               Click map to set DX • 73 de {config.callsign}
             </span>
             <button
@@ -1877,7 +1877,7 @@
               style={{
                 background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)',
                 padding: '4px 10px', borderRadius: '4px', color: 'var(--text-secondary)',
-                fontSize: '10px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace'
+                fontSize: '12px', cursor: 'pointer', fontFamily: 'JetBrains Mono, monospace'
               }}
             >
               ⚙ Settings
@@ -2020,7 +2020,7 @@
         flex: 1, padding: '10px', background: isActive ? 'var(--accent-amber)' : 'var(--bg-tertiary)',
         border: '1px solid var(--border-color)', borderRadius: '6px',
         color: isActive ? '#000' : 'var(--text-secondary)', fontFamily: 'JetBrains Mono, monospace',
-        fontSize: '11px', cursor: 'pointer', fontWeight: isActive ? '700' : '400',
+        fontSize: '13px', cursor: 'pointer', fontWeight: isActive ? '700' : '400',
         transition: 'all 0.2s'
       });
 
@@ -2124,7 +2124,7 @@
                   📟 Legacy
                 </button>
               </div>
-              <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '-12px', marginBottom: '12px' }}>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-12px', marginBottom: '12px' }}>
                 {theme === 'legacy' && '→ Classic green-on-black HamClock style'}
                 {theme === 'light' && '→ Bright theme for daytime use'}
                 {theme === 'dark' && '→ Modern dark theme (default)'}
@@ -2142,7 +2142,7 @@
                   📺 Classic
                 </button>
               </div>
-              <p style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '-12px' }}>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '-12px' }}>
                 {layout === 'legacy' && '→ Layout inspired by original HamClock'}
                 {layout === 'modern' && '→ Modern responsive grid layout'}
               </p>
@@ -2175,7 +2175,7 @@
             </div>
 
             <p style={{ 
-              marginTop: '20px', fontSize: '11px', color: 'var(--text-muted)', 
+              marginTop: '20px', fontSize: '13px', color: 'var(--text-muted)', 
               textAlign: 'center', fontFamily: 'JetBrains Mono, monospace' 
             }}>
               Settings are saved in your browser
@@ -2317,25 +2317,25 @@
               >
                 {config.callsign}
               </span>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>v3.3.0</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>v3.3.0</span>
             </div>
             
             {/* UTC Clock */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '10px', color: 'var(--accent-cyan)' }}>UTC</span>
+              <span style={{ fontSize: '12px', color: 'var(--accent-cyan)' }}>UTC</span>
               <span style={{ fontSize: '22px', fontWeight: '700', color: 'var(--accent-cyan)', fontFamily: 'Orbitron, monospace' }}>{utcTime}</span>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{utcDate}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{utcDate}</span>
             </div>
             
             {/* Local Clock */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '10px', color: 'var(--accent-amber)' }}>LOCAL</span>
+              <span style={{ fontSize: '12px', color: 'var(--accent-amber)' }}>LOCAL</span>
               <span style={{ fontSize: '22px', fontWeight: '700', color: 'var(--accent-amber)', fontFamily: 'Orbitron, monospace' }}>{localTime}</span>
-              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>{localDate}</span>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{localDate}</span>
             </div>
             
             {/* Solar Quick Stats */}
-            <div style={{ display: 'flex', gap: '16px', fontSize: '11px' }}>
+            <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
               <div><span style={{ color: 'var(--text-muted)' }}>SFI </span><span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{spaceWeather.data?.solarFlux || '--'}</span></div>
               <div><span style={{ color: 'var(--text-muted)' }}>K </span><span style={{ color: spaceWeather.data?.kIndex >= 4 ? 'var(--accent-red)' : 'var(--accent-green)', fontWeight: '600' }}>{spaceWeather.data?.kIndex ?? '--'}</span></div>
               <div><span style={{ color: 'var(--text-muted)' }}>SSN </span><span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}>{spaceWeather.data?.sunspotNumber || '--'}</span></div>
@@ -2344,7 +2344,7 @@
             {/* Settings Button */}
             <button
               onClick={() => setShowSettings(true)}
-              style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', padding: '6px 12px', borderRadius: '4px', color: 'var(--text-secondary)', fontSize: '11px', cursor: 'pointer' }}
+              style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-color)', padding: '6px 12px', borderRadius: '4px', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer' }}
             >
               ⚙ Settings
             </button>
@@ -2354,7 +2354,7 @@
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden' }}>
             {/* DE Location */}
             <div className="panel" style={{ padding: '12px', flex: '0 0 auto' }}>
-              <div style={{ fontSize: '11px', color: 'var(--accent-cyan)', fontWeight: '700', marginBottom: '8px' }}>📍 DE - YOUR LOCATION</div>
+              <div style={{ fontSize: '13px', color: 'var(--accent-cyan)', fontWeight: '700', marginBottom: '8px' }}>📍 DE - YOUR LOCATION</div>
               <div style={{ fontFamily: 'JetBrains Mono', fontSize: '13px' }}>
                 <div style={{ color: 'var(--accent-amber)', fontSize: '18px', fontWeight: '700' }}>{deGrid}</div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '2px' }}>{config.location.lat.toFixed(2)}°, {config.location.lon.toFixed(2)}°</div>
@@ -2369,7 +2369,7 @@
             
             {/* DX Location */}
             <div className="panel" style={{ padding: '12px', flex: '0 0 auto' }}>
-              <div style={{ fontSize: '11px', color: 'var(--accent-green)', fontWeight: '700', marginBottom: '8px' }}>🎯 DX - TARGET</div>
+              <div style={{ fontSize: '13px', color: 'var(--accent-green)', fontWeight: '700', marginBottom: '8px' }}>🎯 DX - TARGET</div>
               <div style={{ fontFamily: 'JetBrains Mono', fontSize: '13px' }}>
                 <div style={{ color: 'var(--accent-amber)', fontSize: '18px', fontWeight: '700' }}>{dxGrid}</div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: '12px', marginTop: '2px' }}>{dxLocation.lat.toFixed(2)}°, {dxLocation.lon.toFixed(2)}°</div>
@@ -2384,8 +2384,8 @@
             
             {/* Band Conditions - Compact with color coding */}
             <div className="panel" style={{ padding: '10px', flex: '0 0 auto', overflow: 'hidden' }}>
-              <div style={{ fontSize: '10px', color: 'var(--accent-purple)', fontWeight: '700', marginBottom: '6px' }}>📊 BAND CONDITIONS</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3px', fontSize: '9px', fontFamily: 'JetBrains Mono' }}>
+              <div style={{ fontSize: '12px', color: 'var(--accent-purple)', fontWeight: '700', marginBottom: '6px' }}>📊 BAND CONDITIONS</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '3px', fontSize: '13px', fontFamily: 'JetBrains Mono' }}>
                 {bandConditions.data.slice(0, 12).map(band => {
                   const colors = {
                     GOOD: { bg: 'rgba(0,255,136,0.2)', color: '#00ff88', border: 'rgba(0,255,136,0.4)' },
@@ -2401,7 +2401,7 @@
                       border: `1px solid ${style.border}`,
                       borderRadius: '2px'
                     }}>
-                      <div style={{ fontWeight: '600', color: style.color, fontSize: '8px' }}>{band.band}</div>
+                      <div style={{ fontWeight: '600', color: style.color, fontSize: '12px' }}>{band.band}</div>
                     </div>
                   );
                 })}
@@ -2418,7 +2418,7 @@
           {/* CENTER - MAP */}
           <div style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden' }}>
             <WorldMap deLocation={config.location} dxLocation={dxLocation} onDXChange={handleDXChange} potaSpots={potaSpots.data} />
-            <div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', fontSize: '9px', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.7)', padding: '2px 8px', borderRadius: '4px' }}>
+            <div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', fontSize: '13px', color: 'var(--text-muted)', background: 'rgba(0,0,0,0.7)', padding: '2px 8px', borderRadius: '4px' }}>
               Click map to set DX • 73 de {config.callsign}
             </div>
           </div>
@@ -2427,27 +2427,27 @@
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden' }}>
             {/* DX Cluster - Compact */}
             <div className="panel" style={{ padding: '10px', flex: '1 1 auto', overflow: 'hidden', minHeight: 0 }}>
-              <div style={{ fontSize: '10px', color: 'var(--accent-green)', fontWeight: '700', marginBottom: '6px' }}>
-                🌐 DX CLUSTER <span style={{ color: 'var(--accent-green)', fontSize: '8px' }}>● LIVE</span>
+              <div style={{ fontSize: '12px', color: 'var(--accent-green)', fontWeight: '700', marginBottom: '6px' }}>
+                🌐 DX CLUSTER <span style={{ color: 'var(--accent-green)', fontSize: '12px' }}>● LIVE</span>
               </div>
               <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 20px)' }}>
                 {dxCluster.data.slice(0, 8).map((s, i) => (
-                  <div key={i} style={{ padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '10px', fontFamily: 'JetBrains Mono' }}>
+                  <div key={i} style={{ padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: '12px', fontFamily: 'JetBrains Mono' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: 'var(--accent-cyan)' }}>{s.freq}</span>
                       <span style={{ color: 'var(--accent-amber)', fontWeight: '600' }}>{s.call}</span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '9px' }}>{s.time}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{s.time}</span>
                     </div>
                   </div>
                 ))}
-                {dxCluster.data.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '10px' }}>No spots</div>}
+                {dxCluster.data.length === 0 && <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>No spots</div>}
               </div>
             </div>
             
             {/* POTA - Compact */}
             <div className="panel" style={{ padding: '10px', flex: '0 0 auto' }}>
-              <div style={{ fontSize: '10px', color: 'var(--accent-amber)', fontWeight: '700', marginBottom: '6px' }}>🏕 POTA ACTIVATORS</div>
-              <div style={{ fontSize: '10px', fontFamily: 'JetBrains Mono' }}>
+              <div style={{ fontSize: '12px', color: 'var(--accent-amber)', fontWeight: '700', marginBottom: '6px' }}>🏕 POTA ACTIVATORS</div>
+              <div style={{ fontSize: '12px', fontFamily: 'JetBrains Mono' }}>
                 {potaSpots.data.slice(0, 5).map((a, i) => (
                   <div key={i} style={{ padding: '2px 0', display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ color: 'var(--accent-amber)' }}>{a.call}</span>
@@ -2461,14 +2461,14 @@
             
             {/* Contests - Compact */}
             <div className="panel" style={{ padding: '10px', flex: '1 1 auto', overflow: 'hidden', minHeight: 0 }}>
-              <div style={{ fontSize: '10px', color: 'var(--accent-purple)', fontWeight: '700', marginBottom: '6px' }}>🏆 CONTESTS</div>
-              <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 20px)', fontSize: '10px', fontFamily: 'JetBrains Mono' }}>
+              <div style={{ fontSize: '12px', color: 'var(--accent-purple)', fontWeight: '700', marginBottom: '6px' }}>🏆 CONTESTS</div>
+              <div style={{ overflow: 'auto', maxHeight: 'calc(100% - 20px)', fontSize: '12px', fontFamily: 'JetBrains Mono' }}>
                 {contests.data.slice(0, 6).map((c, i) => (
                   <div key={i} style={{ padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <div style={{ color: c.status === 'active' ? 'var(--accent-green)' : 'var(--text-secondary)', fontWeight: c.status === 'active' ? '700' : '400' }}>
                       {c.name} {c.status === 'active' && <span style={{ animation: 'blink 1s infinite' }}>●</span>}
                     </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '9px' }}>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
                       {c.mode} • {new Date(c.start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </div>
                   </div>
