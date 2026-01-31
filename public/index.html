@@ -1516,7 +1516,6 @@
       const mapInstanceRef = useRef(null);
       const tileLayerRef = useRef(null);
       const terminatorRef = useRef(null);
-      const pathRef = useRef(null);
       const deMarkerRef = useRef(null);
       const dxMarkerRef = useRef(null);
       const sunMarkerRef = useRef(null);
@@ -1638,13 +1637,6 @@
         if (deMarkerRef.current) map.removeLayer(deMarkerRef.current);
         if (dxMarkerRef.current) map.removeLayer(dxMarkerRef.current);
         if (sunMarkerRef.current) map.removeLayer(sunMarkerRef.current);
-        if (pathRef.current) {
-          if (Array.isArray(pathRef.current)) {
-            pathRef.current.forEach(p => map.removeLayer(p));
-          } else {
-            map.removeLayer(pathRef.current);
-          }
-        }
 
         // DE Marker
         const deIcon = L.divIcon({
@@ -1679,30 +1671,6 @@
         sunMarkerRef.current = L.marker([sunPos.lat, sunPos.lon], { icon: sunIcon })
           .bindPopup('Subsolar Point')
           .addTo(map);
-
-        // Great circle path (handles antimeridian crossing)
-        const pathSegments = getGreatCirclePoints(deLocation.lat, deLocation.lon, dxLocation.lat, dxLocation.lon);
-        
-        // pathRef now holds an array of polylines for each segment
-        if (!Array.isArray(pathRef.current)) {
-          pathRef.current = [];
-        }
-        // Clear old paths
-        pathRef.current.forEach(p => map.removeLayer(p));
-        pathRef.current = [];
-        
-        // Draw each segment
-        pathSegments.forEach(segment => {
-          if (segment.length > 1) {
-            const polyline = L.polyline(segment, {
-              color: '#00ddff',
-              weight: 3,
-              opacity: 0.8,
-              dashArray: '10, 6'
-            }).addTo(map);
-            pathRef.current.push(polyline);
-          }
-        });
 
       }, [deLocation, dxLocation]);
 
