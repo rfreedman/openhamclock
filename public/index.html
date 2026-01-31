@@ -1178,12 +1178,27 @@
     // PROPAGATION PANEL COMPONENT (Toggleable views)
     // ============================================
     const PropagationPanel = ({ propagation, loading }) => {
-      const [viewMode, setViewMode] = useState('bars'); // 'bars' or 'chart'
+      // Load view mode preference from localStorage, default to 'chart'
+      const [viewMode, setViewMode] = useState(() => {
+        try {
+          const saved = localStorage.getItem('openhamclock_voacapViewMode');
+          return saved === 'bars' ? 'bars' : 'chart'; // Default to chart
+        } catch (e) { return 'chart'; }
+      });
+      
+      // Save view mode preference when changed
+      const toggleViewMode = () => {
+        const newMode = viewMode === 'bars' ? 'chart' : 'bars';
+        setViewMode(newMode);
+        try {
+          localStorage.setItem('openhamclock_voacapViewMode', newMode);
+        } catch (e) { console.error('Failed to save VOACAP view mode:', e); }
+      };
       
       if (loading || !propagation) {
         return (
           <div className="panel">
-            <div className="panel-header">📡 HF Propagation</div>
+            <div className="panel-header">📡 VOACAP</div>
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
               Loading predictions...
             </div>
@@ -1229,9 +1244,9 @@
       const bands = ['80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'];
 
       return (
-        <div className="panel" style={{ cursor: 'pointer' }} onClick={() => setViewMode(v => v === 'bars' ? 'chart' : 'bars')}>
+        <div className="panel" style={{ cursor: 'pointer' }} onClick={toggleViewMode}>
           <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>📡 HF Propagation {hasRealData && <span style={{ color: '#00ff88', fontSize: '10px' }}>●</span>}</span>
+            <span>📡 VOACAP {hasRealData && <span style={{ color: '#00ff88', fontSize: '10px' }}>●</span>}</span>
             <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
               {viewMode === 'bars' ? '▦ bars' : '▤ chart'} • click to toggle
             </span>
