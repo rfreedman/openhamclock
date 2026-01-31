@@ -15,6 +15,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fetch = require('node-fetch');
+const net = require('net');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -116,68 +117,64 @@ app.get('/api/hamqsl/conditions', async (req, res) => {
 });
 
 // DX Cluster proxy - fetches from selectable sources
-// Query param: ?source=hamqth|dxheat|dxsummit|jo30|auto (default: auto)
+// Query param: ?source=hamqth|dxspider|auto (default: auto)
+// Note: DX Spider uses telnet - works locally but may be blocked on cloud hosting
 
-// Note: DX Spider (telnet) removed - doesn't work on hosted platforms
-// Using HTTP-based APIs only for online compatibility
+// Cache for DX Spider telnet spots (to avoid excessive connections)
+let dxSpiderCache = { spots: [], timestamp: 0 };
+const DXSPIDER_CACHE_TTL = 60000; // 60 seconds cache
 
 app.get('/api/dxcluster/spots', async (req, res) => {
   const source = (req.query.source || 'auto').toLowerCase();
   
-  // Helper function for HamQTH
+  // Helper function for HamQTH (HTTP-based, works everywhere)
   async function fetchHamQTH() {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), 10000);
     
     try {
-      const response = await fetch('https://www.hamqth.com/dxc_csv.php', {
-        headers: { 'User-Agent': 'OpenHamClock/3.4' },
+      const response = await fetch('https://www.hamqth.com/dxc_csv.php?limit=25', {
+        headers: { 'User-Agent': 'OpenHamClock/3.5' },
         signal: controller.signal
       });
       clearTimeout(timeout);
       
       if (response.ok) {
         const text = await response.text();
-        const lines = text.trim().split('\n').filter(line => line.trim() && !line.startsWith('#'));
+        // HamQTH CSV format: Spotter^Frequency^DXCall^Comment^TimeDate^^^Continent^Band^Country^DXCC
+        // Example: KF0NYM^18070.0^TX5U^Correction, Good Sig MO, 73^2149 2025-05-27^^^EU^17M^France^227
+        const lines = text.trim().split('\n').filter(line => line.includes('^'));
         
         if (lines.length > 0) {
-          const spots = [];
-          for (const line of lines.slice(0, 25)) {
+          const spots = lines.slice(0, 25).map(line => {
             const parts = line.split('^');
+            const spotter = parts[0] || '';
+            const freqKhz = parseFloat(parts[1]) || 0;
+            const dxCall = parts[2] || 'UNKNOWN';
+            const comment = parts[3] || '';
+            const timeDate = parts[4] || '';
             
-            if (parts.length >= 5) {
-              const spotter = parts[0] || '';
-              const freqKhz = parts[1] || '';
-              const dxCall = parts[2] || '';
-              const comment = parts[3] || '';
-              const timeDate = parts[4] || '';
-              const band = parts[9] || '';
-              
-              const freqNum = parseFloat(freqKhz);
-              if (!isNaN(freqNum) && freqNum > 0 && dxCall) {
-                const freqMhz = (freqNum / 1000).toFixed(3);
-                let time = '';
-                if (timeDate && timeDate.length >= 4) {
-                  const timeStr = timeDate.substring(0, 4);
-                  time = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4) + 'z';
-                }
-                
-                spots.push({
-                  freq: freqMhz,
-                  call: dxCall,
-                  comment: comment + (band ? ' ' + band : ''),
-                  time: time,
-                  spotter: spotter,
-                  source: 'HamQTH'
-                });
-              }
+            // Frequency: convert from kHz to MHz
+            const freqMhz = freqKhz > 1000 ? (freqKhz / 1000).toFixed(3) : String(freqKhz);
+            
+            // Time: extract HHMM from "2149 2025-05-27" format
+            let time = '';
+            if (timeDate && timeDate.length >= 4) {
+              const timeStr = timeDate.substring(0, 4);
+              time = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4) + 'z';
             }
-          }
-          
-          if (spots.length > 0) {
-            console.log('[DX Cluster] HamQTH:', spots.length, 'spots');
-            return spots;
-          }
+            
+            return {
+              freq: freqMhz,
+              call: dxCall,
+              comment: comment,
+              time: time,
+              spotter: spotter,
+              source: 'HamQTH'
+            };
+          });
+          console.log('[DX Cluster] HamQTH:', spots.length, 'spots');
+          return spots;
         }
       }
     } catch (error) {
@@ -189,194 +186,120 @@ app.get('/api/dxcluster/spots', async (req, res) => {
     return null;
   }
   
-  // Helper function for DXHeat
-  async function fetchDXHeat() {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    
-    try {
-      const response = await fetch('https://dxheat.com/dxc/data.php', {
-        headers: { 
-          'User-Agent': 'OpenHamClock/3.4',
-          'Accept': 'application/json'
-        },
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      
-      if (response.ok) {
-        const text = await response.text();
-        const data = JSON.parse(text);
-        const spots = data.spots || data;
-        
-        if (Array.isArray(spots) && spots.length > 0) {
-          const mapped = spots.slice(0, 25).map(spot => ({
-            freq: spot.f || spot.frequency || '0.000',
-            call: spot.c || spot.dx || spot.callsign || 'UNKNOWN',
-            comment: spot.i || spot.info || '',
-            time: spot.t ? String(spot.t).substring(11, 16) + 'z' : '',
-            spotter: spot.s || spot.spotter || '',
-            source: 'DXHeat'
-          }));
-          console.log('[DX Cluster] DXHeat:', mapped.length, 'spots');
-          return mapped;
-        }
-      }
-    } catch (error) {
-      clearTimeout(timeout);
-      if (error.name !== 'AbortError') {
-        console.error('[DX Cluster] DXHeat error:', error.message);
-      }
+  // Helper function for DX Spider (telnet-based, works locally/Pi)
+  async function fetchDXSpider() {
+    // Check cache first
+    if (Date.now() - dxSpiderCache.timestamp < DXSPIDER_CACHE_TTL && dxSpiderCache.spots.length > 0) {
+      console.log('[DX Cluster] DX Spider: returning', dxSpiderCache.spots.length, 'cached spots');
+      return dxSpiderCache.spots;
     }
-    return null;
-  }
-  
-  // Helper function for DX Summit
-  async function fetchDXSummit() {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
     
-    try {
-      const response = await fetch('https://www.dxsummit.fi/api/v1/spots?limit=25', {
-        headers: { 
-          'User-Agent': 'OpenHamClock/3.4 (Amateur Radio Dashboard)',
-          'Accept': 'application/json'
-        },
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
+    return new Promise((resolve) => {
+      const spots = [];
+      let buffer = '';
+      let loginSent = false;
+      let commandSent = false;
       
-      if (response.ok) {
-        const text = await response.text();
-        const data = JSON.parse(text);
+      const client = new net.Socket();
+      client.setTimeout(15000);
+      
+      // Try connecting to DX Spider node
+      client.connect(7300, 'dxspider.co.uk', () => {
+        console.log('[DX Cluster] DX Spider: connected to dxspider.co.uk:7300');
+      });
+      
+      client.on('data', (data) => {
+        buffer += data.toString();
         
-        if (Array.isArray(data) && data.length > 0) {
-          const spots = data.slice(0, 25).map(spot => ({
-            freq: spot.frequency ? String(spot.frequency) : '0.000',
-            call: spot.dx_call || spot.dxcall || spot.callsign || 'UNKNOWN',
-            comment: spot.info || spot.comment || '',
-            time: spot.time ? String(spot.time).substring(0, 5) + 'z' : '',
-            spotter: spot.spotter || spot.de || '',
-            source: 'DX Summit'
-          }));
-          console.log('[DX Cluster] DX Summit:', spots.length, 'spots');
-          return spots;
+        // Wait for login prompt
+        if (!loginSent && (buffer.includes('login:') || buffer.includes('Please enter your call') || buffer.includes('enter your callsign'))) {
+          loginSent = true;
+          client.write('GUEST\r\n');
+          console.log('[DX Cluster] DX Spider: sent login');
+          return;
         }
-      }
-    } catch (error) {
-      clearTimeout(timeout);
-      if (error.name !== 'AbortError') {
-        console.error('[DX Cluster] DX Summit error:', error.message);
-      }
-    }
-    return null;
-  }
-  
-  // Helper function for IU1BOW Spiderweb (HTTP-based DX Spider web interface)
-  async function fetchIU1BOW() {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    
-    try {
-      const response = await fetch('https://www.iu1bow.it/spotlist', {
-        headers: { 
-          'User-Agent': 'OpenHamClock/3.4',
-          'Accept': 'application/json'
-        },
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      
-      if (response.ok) {
-        const data = await response.json();
         
-        if (Array.isArray(data) && data.length > 0) {
-          const spots = data.slice(0, 25).map(spot => {
-            // IU1BOW format varies, common fields: freq, spotcall/dx_call, spotter, time, comment
-            const freqVal = spot.freq || spot.frequency || 0;
-            const freqMhz = freqVal > 1000 ? (freqVal / 1000).toFixed(3) : String(freqVal).includes('.') ? String(freqVal) : (freqVal / 1000).toFixed(3);
-            let time = '';
-            if (spot.time) {
-              // Time might be Unix timestamp or string
-              if (typeof spot.time === 'number') {
-                const d = new Date(spot.time * 1000);
-                time = d.toISOString().substring(11, 16) + 'z';
-              } else {
-                time = String(spot.time).substring(0, 5) + 'z';
+        // Wait for prompt after login, then send command
+        if (loginSent && !commandSent && (buffer.includes('Hello') || buffer.includes('de ') || buffer.includes('>') || buffer.includes('GUEST'))) {
+          commandSent = true;
+          setTimeout(() => {
+            client.write('sh/dx 25\r\n');
+            console.log('[DX Cluster] DX Spider: sent sh/dx 25');
+          }, 1000);
+          return;
+        }
+        
+        // Parse DX spots from the output
+        // Format: DX de W3LPL:     14195.0  TI5/AA8HH    FT8 -09 dB           1234Z
+        const lines = buffer.split('\n');
+        for (const line of lines) {
+          if (line.includes('DX de ')) {
+            const match = line.match(/DX de ([A-Z0-9\/\-]+):\s+(\d+\.?\d*)\s+([A-Z0-9\/\-]+)\s+(.+?)\s+(\d{4})Z/i);
+            if (match) {
+              const spotter = match[1].replace(':', '');
+              const freqKhz = parseFloat(match[2]);
+              const dxCall = match[3];
+              const comment = match[4].trim();
+              const timeStr = match[5];
+              
+              if (!isNaN(freqKhz) && freqKhz > 0 && dxCall) {
+                const freqMhz = (freqKhz / 1000).toFixed(3);
+                const time = timeStr.substring(0, 2) + ':' + timeStr.substring(2, 4) + 'z';
+                
+                // Avoid duplicates
+                if (!spots.find(s => s.call === dxCall && s.freq === freqMhz)) {
+                  spots.push({
+                    freq: freqMhz,
+                    call: dxCall,
+                    comment: comment,
+                    time: time,
+                    spotter: spotter,
+                    source: 'DX Spider'
+                  });
+                }
               }
             }
-            return {
-              freq: freqMhz,
-              call: spot.spotcall || spot.dx_call || spot.dx || 'UNKNOWN',
-              comment: spot.comment || spot.info || '',
-              time: time,
-              spotter: spot.spotter || spot.de || '',
-              source: 'IU1BOW DX Spider'
-            };
-          });
-          console.log('[DX Cluster] IU1BOW:', spots.length, 'spots');
-          return spots;
+          }
         }
-      }
-    } catch (error) {
-      clearTimeout(timeout);
-      if (error.name !== 'AbortError') {
-        console.error('[DX Cluster] IU1BOW error:', error.message);
-      }
-    }
-    return null;
-  }
-  
-  // Helper function for Spothole (aggregated DX cluster + xOTA spots)
-  async function fetchSpothole() {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    
-    try {
-      // Spothole API endpoint - filter for DX cluster spots only
-      const response = await fetch('https://spothole.app/api/spots?sources=dxcluster&limit=25', {
-        headers: { 
-          'User-Agent': 'OpenHamClock/3.4',
-          'Accept': 'application/json'
-        },
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      
-      if (response.ok) {
-        const data = await response.json();
-        const spotsList = data.spots || data;
         
-        if (Array.isArray(spotsList) && spotsList.length > 0) {
-          const spots = spotsList.slice(0, 25).map(spot => {
-            // Spothole format: dx, frequency, mode, comment, de, time, etc.
-            const freqVal = spot.frequency || spot.freq || 0;
-            const freqMhz = freqVal > 1000 ? (freqVal / 1000).toFixed(3) : String(freqVal);
-            let time = '';
-            if (spot.time || spot.timestamp) {
-              const d = new Date(spot.time || spot.timestamp);
-              time = d.toISOString().substring(11, 16) + 'z';
-            }
-            return {
-              freq: freqMhz,
-              call: spot.dx || spot.call || spot.spotted || 'UNKNOWN',
-              comment: spot.comment || spot.info || spot.mode || '',
-              time: time,
-              spotter: spot.de || spot.spotter || '',
-              source: 'Spothole'
-            };
-          });
-          console.log('[DX Cluster] Spothole:', spots.length, 'spots');
-          return spots;
+        // If we have enough spots, close connection
+        if (spots.length >= 20) {
+          client.write('bye\r\n');
+          setTimeout(() => client.destroy(), 500);
         }
-      }
-    } catch (error) {
-      clearTimeout(timeout);
-      if (error.name !== 'AbortError') {
-        console.error('[DX Cluster] Spothole error:', error.message);
-      }
-    }
-    return null;
+      });
+      
+      client.on('timeout', () => {
+        console.log('[DX Cluster] DX Spider: timeout');
+        client.destroy();
+      });
+      
+      client.on('error', (err) => {
+        console.error('[DX Cluster] DX Spider error:', err.message);
+        client.destroy();
+      });
+      
+      client.on('close', () => {
+        if (spots.length > 0) {
+          console.log('[DX Cluster] DX Spider:', spots.length, 'spots');
+          dxSpiderCache = { spots: spots, timestamp: Date.now() };
+          resolve(spots);
+        } else {
+          console.log('[DX Cluster] DX Spider: no spots received');
+          resolve(null);
+        }
+      });
+      
+      // Fallback timeout - close after 20 seconds regardless
+      setTimeout(() => {
+        if (spots.length > 0) {
+          client.destroy();
+        } else if (client.readable) {
+          client.destroy();
+          resolve(null);
+        }
+      }, 20000);
+    });
   }
   
   // Fetch based on selected source
@@ -384,21 +307,19 @@ app.get('/api/dxcluster/spots', async (req, res) => {
   
   if (source === 'hamqth') {
     spots = await fetchHamQTH();
-  } else if (source === 'dxheat') {
-    spots = await fetchDXHeat();
-  } else if (source === 'dxsummit') {
-    spots = await fetchDXSummit();
-  } else if (source === 'iu1bow') {
-    spots = await fetchIU1BOW();
-  } else if (source === 'spothole') {
-    spots = await fetchSpothole();
+  } else if (source === 'dxspider') {
+    spots = await fetchDXSpider();
+    // Fallback to HamQTH if DX Spider fails
+    if (!spots) {
+      console.log('[DX Cluster] DX Spider failed, falling back to HamQTH');
+      spots = await fetchHamQTH();
+    }
   } else {
-    // Auto mode - try sources in order (most reliable first)
+    // Auto mode - try HamQTH first (most reliable), then DX Spider
     spots = await fetchHamQTH();
-    if (!spots) spots = await fetchIU1BOW();
-    if (!spots) spots = await fetchSpothole();
-    if (!spots) spots = await fetchDXHeat();
-    if (!spots) spots = await fetchDXSummit();
+    if (!spots) {
+      spots = await fetchDXSpider();
+    }
   }
   
   res.json(spots || []);
@@ -407,12 +328,9 @@ app.get('/api/dxcluster/spots', async (req, res) => {
 // Get available DX cluster sources
 app.get('/api/dxcluster/sources', (req, res) => {
   res.json([
-    { id: 'auto', name: 'Auto (Best Available)', description: 'Automatically selects the best available source' },
-    { id: 'hamqth', name: 'HamQTH', description: 'HamQTH.com DX Cluster CSV feed' },
-    { id: 'iu1bow', name: 'IU1BOW DX Spider', description: 'IU1BOW.it Spiderweb cluster (HTTP API)' },
-    { id: 'spothole', name: 'Spothole', description: 'Spothole.app aggregated DX cluster' },
-    { id: 'dxheat', name: 'DXHeat', description: 'DXHeat.com real-time cluster' },
-    { id: 'dxsummit', name: 'DX Summit', description: 'DXSummit.fi cluster (may be slow)' }
+    { id: 'auto', name: 'Auto (Best Available)', description: 'Tries HamQTH first, then DX Spider' },
+    { id: 'hamqth', name: 'HamQTH', description: 'HamQTH.com CSV feed (HTTP, works everywhere)' },
+    { id: 'dxspider', name: 'DX Spider (G6NHU)', description: 'Telnet to dxspider.co.uk:7300 (works locally/Pi, may fail on cloud hosting)' }
   ]);
 });
 

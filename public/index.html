@@ -691,8 +691,7 @@
                   call: s.call || s.dx_call || 'UNKNOWN',
                   comment: s.comment || s.info || '',
                   time: s.time || new Date().toISOString().substr(11, 5) + 'z',
-                  spotter: s.spotter || '',
-                  source: s.source || ''
+                  spotter: s.spotter || ''
                 })));
               } else {
                 setData([{
@@ -2595,19 +2594,13 @@
                 }}
               >
                 <option value="auto">Auto (Best Available)</option>
-                <option value="hamqth">HamQTH</option>
-                <option value="iu1bow">IU1BOW DX Spider</option>
-                <option value="spothole">Spothole</option>
-                <option value="dxheat">DXHeat</option>
-                <option value="dxsummit">DX Summit</option>
+                <option value="hamqth">HamQTH (HTTP)</option>
+                <option value="dxspider">DX Spider (Telnet)</option>
               </select>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '8px' }}>
-                {dxClusterSource === 'auto' && '→ Automatically selects the best available source'}
-                {dxClusterSource === 'hamqth' && '→ HamQTH.com DX Cluster CSV feed'}
-                {dxClusterSource === 'iu1bow' && '→ IU1BOW.it Spiderweb cluster (HTTP API)'}
-                {dxClusterSource === 'spothole' && '→ Spothole.app aggregated DX cluster'}
-                {dxClusterSource === 'dxheat' && '→ DXHeat.com real-time cluster'}
-                {dxClusterSource === 'dxsummit' && '→ DXSummit.fi cluster (may be slow)'}
+                {dxClusterSource === 'auto' && '→ Tries HamQTH first, then DX Spider telnet'}
+                {dxClusterSource === 'hamqth' && '→ HamQTH.com CSV feed (works on all platforms)'}
+                {dxClusterSource === 'dxspider' && '→ Telnet to dxspider.co.uk:7300 (works locally/Pi, may fail on cloud hosting)'}
               </p>
             </div>
 
