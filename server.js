@@ -1812,12 +1812,19 @@ async function fetchITURHFPropPrediction(txLat, txLon, rxLat, rxLon, ssn, month,
   }
   
   try {
-    console.log('[Hybrid] Fetching from ITURHFProp service...');
+    console.log('[Hybrid] Fetching from ITURHFProp service:', ITURHFPROP_URL);
     const url = `${ITURHFPROP_URL}/api/bands?txLat=${txLat}&txLon=${txLon}&rxLat=${rxLat}&rxLon=${rxLon}&ssn=${ssn}&month=${month}&hour=${hour}`;
+    console.log('[Hybrid] Request URL:', url);
     
-    const response = await fetch(url, { timeout: 10000 });
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
+    const response = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
-      console.log('[Hybrid] ITURHFProp returned error:', response.status);
+      console.log('[Hybrid] ITURHFProp returned error:', response.status, response.statusText);
       return null;
     }
     
@@ -1834,7 +1841,7 @@ async function fetchITURHFPropPrediction(txLat, txLon, rxLat, rxLon, ssn, month,
     
     return data;
   } catch (err) {
-    console.log('[Hybrid] ITURHFProp service unavailable:', err.message);
+    console.log('[Hybrid] ITURHFProp service error:', err.name, err.message);
     return null;
   }
 }
@@ -2019,7 +2026,7 @@ app.get('/api/propagation', async (req, res) => {
     
     // Get ionospheric data at path midpoint
     const ionoData = interpolateFoF2(midLat, midLon, ionosondeStations);
-    const hasValidIonoData = ionoData && ionoData.method !== 'no-coverage' && ionoData.foF2;
+    const hasValidIonoData = !!(ionoData && ionoData.method !== 'no-coverage' && ionoData.foF2);
     
     const currentHour = new Date().getUTCHours();
     const currentMonth = new Date().getMonth() + 1;
