@@ -15,7 +15,8 @@ import {
   DXFilterManager,
   SolarPanel,
   PropagationPanel,
-  DXpeditionPanel
+  DXpeditionPanel,
+  PSKReporterPanel
 } from './components';
 
 // Hooks
@@ -31,7 +32,8 @@ import {
   useMySpots,
   useDXpeditions,
   useSatellites,
-  useSolarIndices
+  useSolarIndices,
+  usePSKReporter
 } from './hooks';
 
 // Utils
@@ -100,9 +102,9 @@ const App = () => {
   const [mapLayers, setMapLayers] = useState(() => {
     try {
       const stored = localStorage.getItem('openhamclock_mapLayers');
-      const defaults = { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false };
+      const defaults = { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false, showPSKReporter: true };
       return stored ? { ...defaults, ...JSON.parse(stored) } : defaults;
-    } catch (e) { return { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false }; }
+    } catch (e) { return { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false, showPSKReporter: true }; }
   });
   
   useEffect(() => {
@@ -117,6 +119,7 @@ const App = () => {
   const toggleDXLabels = useCallback(() => setMapLayers(prev => ({ ...prev, showDXLabels: !prev.showDXLabels })), []);
   const togglePOTA = useCallback(() => setMapLayers(prev => ({ ...prev, showPOTA: !prev.showPOTA })), []);
   const toggleSatellites = useCallback(() => setMapLayers(prev => ({ ...prev, showSatellites: !prev.showSatellites })), []);
+  const togglePSKReporter = useCallback(() => setMapLayers(prev => ({ ...prev, showPSKReporter: !prev.showPSKReporter })), []);
   
   // 12/24 hour format
   const [use12Hour, setUse12Hour] = useState(() => {
@@ -637,6 +640,18 @@ const App = () => {
           {/* DXpeditions - smaller */}
           <div style={{ flex: '0 0 auto', maxHeight: '140px', overflow: 'hidden' }}>
             <DXpeditionPanel data={dxpeditions.data} loading={dxpeditions.loading} />
+          </div>
+          
+          {/* PSKReporter */}
+          <div style={{ flex: '0 0 auto', maxHeight: '220px', overflow: 'hidden' }}>
+            <PSKReporterPanel 
+              callsign={config.callsign}
+              onShowOnMap={(report) => {
+                if (report.lat && report.lon) {
+                  setDxLocation({ lat: report.lat, lon: report.lon, call: report.receiver || report.sender });
+                }
+              }}
+            />
           </div>
           
           {/* POTA - smaller */}

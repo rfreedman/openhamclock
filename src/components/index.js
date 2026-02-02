@@ -16,3 +16,4 @@ export { DXFilterManager } from './DXFilterManager.jsx';
 export { SolarPanel } from './SolarPanel.jsx';
 export { PropagationPanel } from './PropagationPanel.jsx';
 export { DXpeditionPanel } from './DXpeditionPanel.jsx';
+export { PSKReporterPanel } from './PSKReporterPanel.jsx';

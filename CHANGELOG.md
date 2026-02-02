@@ -2,6 +2,29 @@
 
 All notable changes to OpenHamClock will be documented in this file.
 
+## [3.11.0] - 2025-02-02
+
+### Added
+- **PSKReporter Integration** - See where your digital mode signals are being received
+  - New PSKReporter panel shows stations hearing you and stations you're hearing
+  - Supports FT8, FT4, JS8, and other digital modes
+  - Configurable time window (5, 15, 30 min, 1 hour)
+  - Shows band, mode, SNR, and age of each report
+  - Click on a report to center map on that location
+
+### Changed
+- **Bandwidth Optimization** - Reduced network egress by ~85%
+  - Added GZIP compression (70-90% smaller responses)
+  - Server-side caching for all external API calls
+  - Reduced client polling intervals (DX Cluster: 5s→30s, POTA: 60s→120s)
+  - Added HTTP Cache-Control headers
+  - POTA now uses server proxy instead of direct API calls
+
+### Fixed
+- Empty ITURHFPROP_URL causing "Only absolute URLs supported" error
+- Satellite TLE fetch timeout errors now handled silently
+- Reduced console log spam for network errors
+
 ## [3.10.0] - 2025-02-02
 
 ### Added

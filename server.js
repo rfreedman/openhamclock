@@ -206,6 +206,8 @@ app.use('/api', (req, res, next) => {
     cacheDuration = 600; // 10 minutes
   } else if (path.includes('/pota') || path.includes('/sota')) {
     cacheDuration = 120; // 2 minutes
+  } else if (path.includes('/pskreporter')) {
+    cacheDuration = 120; // 2 minutes (respect PSKReporter rate limits)
   } else if (path.includes('/dxcluster') || path.includes('/myspots')) {
     cacheDuration = 30; // 30 seconds (DX spots need to be relatively fresh)
   } else if (path.includes('/config')) {
@@ -1847,6 +1849,291 @@ app.get('/api/myspots/:callsign', async (req, res) => {
   } catch (error) {
     logErrorOnce('My Spots', error.message);
     res.json([]);
+  }
+});
+
+// ============================================
+// PSKREPORTER API
+// ============================================
+
+// Cache for PSKReporter data (2-minute cache to respect their rate limits)
+let pskReporterCache = {};
+const PSK_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
+// Parse PSKReporter XML response
+function parsePSKReporterXML(xml) {
+  const reports = [];
+  
+  // Extract reception reports using regex (simple XML parsing)
+  const reportRegex = /<receptionReport[^>]*>([\s\S]*?)<\/receptionReport>/g;
+  let match;
+  
+  while ((match = reportRegex.exec(xml)) !== null) {
+    const report = match[0];
+    
+    // Extract attributes
+    const getAttr = (name) => {
+      const attrMatch = report.match(new RegExp(`${name}="([^"]*)"`));
+      return attrMatch ? attrMatch[1] : null;
+    };
+    
+    const receiverCallsign = getAttr('receiverCallsign');
+    const receiverLocator = getAttr('receiverLocator');
+    const senderCallsign = getAttr('senderCallsign');
+    const senderLocator = getAttr('senderLocator');
+    const frequency = getAttr('frequency');
+    const mode = getAttr('mode');
+    const flowStartSeconds = getAttr('flowStartSeconds');
+    const sNR = getAttr('sNR');
+    
+    if (receiverCallsign && senderCallsign) {
+      reports.push({
+        receiver: receiverCallsign,
+        receiverGrid: receiverLocator,
+        sender: senderCallsign,
+        senderGrid: senderLocator,
+        freq: frequency ? (parseInt(frequency) / 1000000).toFixed(6) : null,
+        freqMHz: frequency ? (parseInt(frequency) / 1000000).toFixed(3) : null,
+        mode: mode || 'Unknown',
+        timestamp: flowStartSeconds ? parseInt(flowStartSeconds) * 1000 : Date.now(),
+        snr: sNR ? parseInt(sNR) : null
+      });
+    }
+  }
+  
+  return reports;
+}
+
+// Convert grid square to lat/lon
+function gridToLatLonSimple(grid) {
+  if (!grid || grid.length < 4) return null;
+  
+  const g = grid.toUpperCase();
+  const lon = (g.charCodeAt(0) - 65) * 20 - 180;
+  const lat = (g.charCodeAt(1) - 65) * 10 - 90;
+  const lonMin = parseInt(g[2]) * 2;
+  const latMin = parseInt(g[3]) * 1;
+  
+  let finalLon = lon + lonMin + 1;
+  let finalLat = lat + latMin + 0.5;
+  
+  // If 6-character grid, add more precision
+  if (grid.length >= 6) {
+    const lonSec = (g.charCodeAt(4) - 65) * (2/24);
+    const latSec = (g.charCodeAt(5) - 65) * (1/24);
+    finalLon = lon + lonMin + lonSec + (1/24);
+    finalLat = lat + latMin + latSec + (0.5/24);
+  }
+  
+  return { lat: finalLat, lon: finalLon };
+}
+
+// Get band name from frequency in MHz
+function getBandFromMHz(freqMHz) {
+  const freq = parseFloat(freqMHz);
+  if (freq >= 1.8 && freq <= 2) return '160m';
+  if (freq >= 3.5 && freq <= 4) return '80m';
+  if (freq >= 5.3 && freq <= 5.4) return '60m';
+  if (freq >= 7 && freq <= 7.3) return '40m';
+  if (freq >= 10.1 && freq <= 10.15) return '30m';
+  if (freq >= 14 && freq <= 14.35) return '20m';
+  if (freq >= 18.068 && freq <= 18.168) return '17m';
+  if (freq >= 21 && freq <= 21.45) return '15m';
+  if (freq >= 24.89 && freq <= 24.99) return '12m';
+  if (freq >= 28 && freq <= 29.7) return '10m';
+  if (freq >= 50 && freq <= 54) return '6m';
+  if (freq >= 144 && freq <= 148) return '2m';
+  if (freq >= 420 && freq <= 450) return '70cm';
+  return 'Unknown';
+}
+
+// PSKReporter - where is my signal being heard?
+app.get('/api/pskreporter/tx/:callsign', async (req, res) => {
+  const callsign = req.params.callsign.toUpperCase();
+  const minutes = parseInt(req.query.minutes) || 15; // Default 15 minutes
+  const flowStartSeconds = Math.floor(minutes * 60);
+  
+  const cacheKey = `tx:${callsign}:${minutes}`;
+  const now = Date.now();
+  
+  // Check cache
+  if (pskReporterCache[cacheKey] && (now - pskReporterCache[cacheKey].timestamp) < PSK_CACHE_TTL) {
+    return res.json(pskReporterCache[cacheKey].data);
+  }
+  
+  try {
+    console.log(`[PSKReporter] Fetching TX reports for ${callsign} (last ${minutes} min)`);
+    
+    const url = `https://retrieve.pskreporter.info/query?senderCallsign=${encodeURIComponent(callsign)}&flowStartSeconds=${flowStartSeconds}&rronly=1&noactive=1&nolocator=1`;
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    
+    const response = await fetch(url, {
+      headers: { 
+        'User-Agent': 'OpenHamClock/3.10',
+        'Accept': 'application/xml'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    
+    if (!response.ok) {
+      throw new Error(`PSKReporter returned ${response.status}`);
+    }
+    
+    const xml = await response.text();
+    const reports = parsePSKReporterXML(xml);
+    
+    // Add location data and band info
+    const enrichedReports = reports.map(r => {
+      const loc = r.receiverGrid ? gridToLatLonSimple(r.receiverGrid) : null;
+      return {
+        ...r,
+        lat: loc?.lat,
+        lon: loc?.lon,
+        band: r.freqMHz ? getBandFromMHz(r.freqMHz) : 'Unknown',
+        age: Math.floor((Date.now() - r.timestamp) / 60000) // minutes ago
+      };
+    }).filter(r => r.lat && r.lon);
+    
+    // Sort by timestamp (newest first)
+    enrichedReports.sort((a, b) => b.timestamp - a.timestamp);
+    
+    const result = {
+      callsign,
+      direction: 'tx',
+      count: enrichedReports.length,
+      reports: enrichedReports.slice(0, 100), // Limit to 100 reports
+      timestamp: new Date().toISOString()
+    };
+    
+    // Cache the result
+    pskReporterCache[cacheKey] = { data: result, timestamp: now };
+    
+    console.log(`[PSKReporter] Found ${enrichedReports.length} stations hearing ${callsign}`);
+    res.json(result);
+    
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      logErrorOnce('PSKReporter', `TX query error: ${error.message}`);
+    }
+    // Return cached data if available
+    if (pskReporterCache[cacheKey]) {
+      return res.json(pskReporterCache[cacheKey].data);
+    }
+    res.json({ callsign, direction: 'tx', count: 0, reports: [], error: error.message });
+  }
+});
+
+// PSKReporter - what am I hearing?
+app.get('/api/pskreporter/rx/:callsign', async (req, res) => {
+  const callsign = req.params.callsign.toUpperCase();
+  const minutes = parseInt(req.query.minutes) || 15;
+  const flowStartSeconds = Math.floor(minutes * 60);
+  
+  const cacheKey = `rx:${callsign}:${minutes}`;
+  const now = Date.now();
+  
+  // Check cache
+  if (pskReporterCache[cacheKey] && (now - pskReporterCache[cacheKey].timestamp) < PSK_CACHE_TTL) {
+    return res.json(pskReporterCache[cacheKey].data);
+  }
+  
+  try {
+    console.log(`[PSKReporter] Fetching RX reports for ${callsign} (last ${minutes} min)`);
+    
+    const url = `https://retrieve.pskreporter.info/query?receiverCallsign=${encodeURIComponent(callsign)}&flowStartSeconds=${flowStartSeconds}&rronly=1&noactive=1&nolocator=1`;
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    
+    const response = await fetch(url, {
+      headers: { 
+        'User-Agent': 'OpenHamClock/3.10',
+        'Accept': 'application/xml'
+      },
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    
+    if (!response.ok) {
+      throw new Error(`PSKReporter returned ${response.status}`);
+    }
+    
+    const xml = await response.text();
+    const reports = parsePSKReporterXML(xml);
+    
+    // Add location data and band info
+    const enrichedReports = reports.map(r => {
+      const loc = r.senderGrid ? gridToLatLonSimple(r.senderGrid) : null;
+      return {
+        ...r,
+        lat: loc?.lat,
+        lon: loc?.lon,
+        band: r.freqMHz ? getBandFromMHz(r.freqMHz) : 'Unknown',
+        age: Math.floor((Date.now() - r.timestamp) / 60000)
+      };
+    }).filter(r => r.lat && r.lon);
+    
+    enrichedReports.sort((a, b) => b.timestamp - a.timestamp);
+    
+    const result = {
+      callsign,
+      direction: 'rx',
+      count: enrichedReports.length,
+      reports: enrichedReports.slice(0, 100),
+      timestamp: new Date().toISOString()
+    };
+    
+    pskReporterCache[cacheKey] = { data: result, timestamp: now };
+    
+    console.log(`[PSKReporter] Found ${enrichedReports.length} stations heard by ${callsign}`);
+    res.json(result);
+    
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      logErrorOnce('PSKReporter', `RX query error: ${error.message}`);
+    }
+    if (pskReporterCache[cacheKey]) {
+      return res.json(pskReporterCache[cacheKey].data);
+    }
+    res.json({ callsign, direction: 'rx', count: 0, reports: [], error: error.message });
+  }
+});
+
+// PSKReporter - combined TX and RX for a callsign
+app.get('/api/pskreporter/:callsign', async (req, res) => {
+  const callsign = req.params.callsign.toUpperCase();
+  const minutes = parseInt(req.query.minutes) || 15;
+  
+  try {
+    // Fetch both TX and RX in parallel
+    const [txRes, rxRes] = await Promise.allSettled([
+      fetch(`http://localhost:${PORT}/api/pskreporter/tx/${callsign}?minutes=${minutes}`),
+      fetch(`http://localhost:${PORT}/api/pskreporter/rx/${callsign}?minutes=${minutes}`)
+    ]);
+    
+    let txData = { count: 0, reports: [] };
+    let rxData = { count: 0, reports: [] };
+    
+    if (txRes.status === 'fulfilled' && txRes.value.ok) {
+      txData = await txRes.value.json();
+    }
+    if (rxRes.status === 'fulfilled' && rxRes.value.ok) {
+      rxData = await rxRes.value.json();
+    }
+    
+    res.json({
+      callsign,
+      tx: txData,
+      rx: rxData,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    logErrorOnce('PSKReporter', `Combined query error: ${error.message}`);
+    res.json({ callsign, tx: { count: 0, reports: [] }, rx: { count: 0, reports: [] }, error: error.message });
   }
 });
 
