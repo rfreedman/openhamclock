@@ -22,73 +22,87 @@ export const Header = ({
     <div style={{ 
       gridColumn: '1 / -1',
       display: 'flex',
+      flexWrap: 'nowrap',
       alignItems: 'center',
       justifyContent: 'space-between',
       background: 'var(--bg-panel)',
       border: '1px solid var(--border-color)',
       borderRadius: '6px',
-      padding: '8px 20px',
-      minHeight: '60px',
-      fontFamily: 'JetBrains Mono, monospace'
+      padding: '6px 12px',
+      minHeight: '50px',
+      fontFamily: 'JetBrains Mono, monospace',
+      overflow: 'hidden'
     }}>
       {/* Callsign & Settings */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
         <span 
-          style={{ fontSize: '24px', fontWeight: '900', color: 'var(--accent-amber)', cursor: 'pointer', fontFamily: 'Orbitron, monospace' }}
+          style={{ fontSize: '22px', fontWeight: '900', color: 'var(--accent-amber)', cursor: 'pointer', fontFamily: 'Orbitron, monospace', whiteSpace: 'nowrap' }}
           onClick={onSettingsClick}
           title="Click for settings"
         >
           {config.callsign}
         </span>
-        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>v3.7.0</span>
+        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>v3.7.0</span>
       </div>
       
       {/* UTC Clock */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <span style={{ fontSize: '14px', color: 'var(--accent-cyan)', fontWeight: '600' }}>UTC</span>
-        <span style={{ fontSize: '28px', fontWeight: '700', color: 'var(--accent-cyan)', fontFamily: 'Orbitron, monospace' }}>{utcTime}</span>
-        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{utcDate}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+        <span style={{ fontSize: '13px', color: 'var(--accent-cyan)', fontWeight: '600' }}>UTC</span>
+        <span style={{ 
+          fontSize: '24px', 
+          fontWeight: '700', 
+          color: 'var(--accent-cyan)', 
+          fontFamily: 'JetBrains Mono, Consolas, monospace',
+          whiteSpace: 'nowrap'
+        }}>{utcTime}</span>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{utcDate}</span>
       </div>
       
       {/* Local Clock - Clickable to toggle 12/24 hour format */}
       <div 
-        style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}
+        style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flexShrink: 0 }}
         onClick={onTimeFormatToggle}
         title={`Click to switch to ${use12Hour ? '24-hour' : '12-hour'} format`}
       >
-        <span style={{ fontSize: '14px', color: 'var(--accent-amber)', fontWeight: '600' }}>LOCAL</span>
-        <span style={{ fontSize: '28px', fontWeight: '700', color: 'var(--accent-amber)', fontFamily: 'Orbitron, monospace' }}>{localTime}</span>
-        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{localDate}</span>
+        <span style={{ fontSize: '13px', color: 'var(--accent-amber)', fontWeight: '600' }}>LOCAL</span>
+        <span style={{ 
+          fontSize: '24px', 
+          fontWeight: '700', 
+          color: 'var(--accent-amber)', 
+          fontFamily: 'JetBrains Mono, Consolas, monospace',
+          whiteSpace: 'nowrap'
+        }}>{localTime}</span>
+        <span style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{localDate}</span>
       </div>
       
       {/* Weather & Solar Stats */}
-      <div style={{ display: 'flex', gap: '20px', fontSize: '14px' }}>
+      <div style={{ display: 'flex', gap: '12px', fontSize: '13px', fontFamily: 'JetBrains Mono, Consolas, monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
         {localWeather?.data && (
           <div title={`${localWeather.data.description} • Wind: ${localWeather.data.windSpeed} mph`}>
-            <span style={{ marginRight: '4px' }}>{localWeather.data.icon}</span>
+            <span style={{ marginRight: '3px' }}>{localWeather.data.icon}</span>
             <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}>
-              {localWeather.data.temp}°F / {Math.round((localWeather.data.temp - 32) * 5/9)}°C
+              {localWeather.data.temp}°F/{Math.round((localWeather.data.temp - 32) * 5/9)}°C
             </span>
           </div>
         )}
         <div>
           <span style={{ color: 'var(--text-muted)' }}>SFI </span>
-          <span style={{ color: 'var(--accent-amber)', fontWeight: '700', fontSize: '16px' }}>{spaceWeather?.data?.solarFlux || '--'}</span>
+          <span style={{ color: 'var(--accent-amber)', fontWeight: '700' }}>{spaceWeather?.data?.solarFlux || '--'}</span>
         </div>
         <div>
           <span style={{ color: 'var(--text-muted)' }}>K </span>
-          <span style={{ color: parseInt(spaceWeather?.data?.kIndex) >= 4 ? 'var(--accent-red)' : 'var(--accent-green)', fontWeight: '700', fontSize: '16px' }}>
+          <span style={{ color: parseInt(spaceWeather?.data?.kIndex) >= 4 ? 'var(--accent-red)' : 'var(--accent-green)', fontWeight: '700' }}>
             {spaceWeather?.data?.kIndex ?? '--'}
           </span>
         </div>
         <div>
           <span style={{ color: 'var(--text-muted)' }}>SSN </span>
-          <span style={{ color: 'var(--accent-cyan)', fontWeight: '700', fontSize: '16px' }}>{spaceWeather?.data?.sunspotNumber || '--'}</span>
+          <span style={{ color: 'var(--accent-cyan)', fontWeight: '700' }}>{spaceWeather?.data?.sunspotNumber || '--'}</span>
         </div>
       </div>
       
       {/* Settings & Fullscreen Buttons */}
-      <div style={{ display: 'flex', gap: '8px' }}>
+      <div style={{ display: 'flex', gap: '6px', flexShrink: 0 }}>
         <a
           href="https://buymeacoffee.com/k0cjh"
           target="_blank"
@@ -96,16 +110,17 @@ export const Header = ({
           style={{
             background: 'linear-gradient(135deg, #ff813f 0%, #ffdd00 100%)', 
             border: 'none',
-            padding: '8px 14px', 
+            padding: '6px 10px', 
             borderRadius: '4px', 
             color: '#000',
-            fontSize: '13px', 
+            fontSize: '12px', 
             cursor: 'pointer',
             fontWeight: '600', 
             textDecoration: 'none',
             display: 'flex', 
             alignItems: 'center', 
-            gap: '4px'
+            gap: '3px',
+            whiteSpace: 'nowrap'
           }}
           title="Buy me a coffee!"
         >
@@ -116,11 +131,12 @@ export const Header = ({
           style={{ 
             background: 'var(--bg-tertiary)', 
             border: '1px solid var(--border-color)', 
-            padding: '8px 14px', 
+            padding: '6px 10px', 
             borderRadius: '4px', 
             color: 'var(--text-secondary)', 
-            fontSize: '13px', 
-            cursor: 'pointer' 
+            fontSize: '12px', 
+            cursor: 'pointer',
+            whiteSpace: 'nowrap'
           }}
         >
           ⚙ Settings
@@ -130,11 +146,12 @@ export const Header = ({
           style={{ 
             background: isFullscreen ? 'rgba(0, 255, 136, 0.15)' : 'var(--bg-tertiary)', 
             border: `1px solid ${isFullscreen ? 'var(--accent-green)' : 'var(--border-color)'}`, 
-            padding: '8px 14px', 
+            padding: '6px 10px', 
             borderRadius: '4px', 
             color: isFullscreen ? 'var(--accent-green)' : 'var(--text-secondary)', 
-            fontSize: '13px', 
-            cursor: 'pointer' 
+            fontSize: '12px', 
+            cursor: 'pointer',
+            whiteSpace: 'nowrap'
           }}
           title={isFullscreen ? "Exit Fullscreen (Esc)" : "Enter Fullscreen"}
         >
