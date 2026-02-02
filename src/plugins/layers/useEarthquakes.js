@@ -1,0 +1,145 @@
+import { useState, useEffect } from 'react';
+
+//Scaled markers - Bigger circles for stronger quakes
+//Color-coded by magnitude:
+//Yellow: M2.5-3 (minor)
+//Orange: M3-4 (light)
+//Deep Orange: M4-5 (moderate)
+//Red: M5-6 (strong)
+//Dark Red: M6-7 (major)
+//Very Dark Red: M7+ (great)
+
+export const metadata = {
+  id: 'earthquakes',
+  name: 'Earthquakes',
+  description: 'Live USGS earthquake data (M2.5+ from last 24 hours)',
+  icon: '🌋',
+  category: 'geology',
+  defaultEnabled: false,
+  defaultOpacity: 0.9,
+  version: '1.0.0'
+};
+
+export function useLayer({ enabled = false, opacity = 0.9, map = null }) {
+  const [markersRef, setMarkersRef] = useState([]);
+  const [earthquakeData, setEarthquakeData] = useState([]);
+
+  // Fetch earthquake data
+  useEffect(() => {
+    if (!enabled) return;
+
+    const fetchEarthquakes = async () => {
+      try {
+        // USGS GeoJSON feed - M2.5+ from last day
+        const response = await fetch(
+          'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson'
+        );
+        const data = await response.json();
+        setEarthquakeData(data.features || []);
+      } catch (err) {
+        console.error('Earthquake data fetch error:', err);
+      }
+    };
+
+    fetchEarthquakes();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchEarthquakes, 300000);
+
+    return () => clearInterval(interval);
+  }, [enabled]);
+
+  // Add/remove markers
+  useEffect(() => {
+    if (!map || typeof L === 'undefined') return;
+
+    // Clear old markers
+    markersRef.forEach(marker => {
+      try {
+        map.removeLayer(marker);
+      } catch (e) {
+        // Already removed
+      }
+    });
+    setMarkersRef([]);
+
+    if (!enabled || earthquakeData.length === 0) return;
+
+    const newMarkers = [];
+
+    earthquakeData.forEach(quake => {
+      const coords = quake.geometry.coordinates;
+      const props = quake.properties;
+      const mag = props.mag;
+      const lat = coords[1];
+      const lon = coords[0];
+      const depth = coords[2];
+
+      // Skip if invalid coordinates
+      if (!lat || !lon || isNaN(lat) || isNaN(lon)) return;
+
+      // Calculate marker size based on magnitude (M2.5 = 8px, M7+ = 40px)
+      const size = Math.min(Math.max(mag * 4, 8), 40);
+
+      // Color based on magnitude
+      let color;
+      if (mag < 3) color = '#ffff00'; // Yellow - minor
+      else if (mag < 4) color = '#ffaa00'; // Orange - light
+      else if (mag < 5) color = '#ff6600'; // Deep orange - moderate
+      else if (mag < 6) color = '#ff3300'; // Red - strong
+      else if (mag < 7) color = '#cc0000'; // Dark red - major
+      else color = '#990000'; // Very dark red - great
+
+      // Create circle marker
+      const circle = L.circleMarker([lat, lon], {
+        radius: size / 2,
+        fillColor: color,
+        color: '#fff',
+        weight: 2,
+        opacity: opacity,
+        fillOpacity: opacity * 0.7
+      });
+
+      // Format time
+      const time = new Date(props.time);
+      const timeStr = time.toLocaleString();
+
+      // Add popup with details
+      circle.bindPopup(`
+        <div style="font-family: 'JetBrains Mono', monospace; min-width: 200px;">
+          <div style="font-size: 16px; font-weight: bold; color: ${color}; margin-bottom: 8px;">
+            M${mag.toFixed(1)} ${props.type === 'earthquake' ? '🌋' : '⚡'}
+          </div>
+          <table style="font-size: 12px; width: 100%;">
+            <tr><td><b>Location:</b></td><td>${props.place || 'Unknown'}</td></tr>
+            <tr><td><b>Time:</b></td><td>${timeStr}</td></tr>
+            <tr><td><b>Depth:</b></td><td>${depth.toFixed(1)} km</td></tr>
+            <tr><td><b>Magnitude:</b></td><td>${mag.toFixed(1)}</td></tr>
+            <tr><td><b>Status:</b></td><td>${props.status || 'automatic'}</td></tr>
+            ${props.tsunami ? '<tr><td colspan="2" style="color: red; font-weight: bold;">⚠️ TSUNAMI WARNING</td></tr>' : ''}
+          </table>
+          ${props.url ? `<a href="${props.url}" target="_blank" style="color: #00aaff; font-size: 11px;">View Details →</a>` : ''}
+        </div>
+      `);
+
+      circle.addTo(map);
+      newMarkers.push(circle);
+    });
+
+    setMarkersRef(newMarkers);
+
+    return () => {
+      newMarkers.forEach(marker => {
+        try {
+          map.removeLayer(marker);
+        } catch (e) {
+          // Already removed
+        }
+      });
+    };
+  }, [enabled, earthquakeData, map, opacity]);
+
+  return {
+    markers: markersRef,
+    earthquakeCount: earthquakeData.length
+  };
+}

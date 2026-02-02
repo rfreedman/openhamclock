@@ -1,6 +1,6 @@
 /**
  * SettingsPanel Component
- * Full settings modal matching production version
+ * Full settings modal with map layer controls
  */
 import React, { useState, useEffect } from 'react';
 import { calculateGridSquare } from '../utils/geo.js';
@@ -13,6 +13,10 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
   const [theme, setTheme] = useState(config?.theme || 'dark');
   const [layout, setLayout] = useState(config?.layout || 'modern');
   const [dxClusterSource, setDxClusterSource] = useState(config?.dxClusterSource || 'dxspider-proxy');
+  
+  // Layer controls
+  const [layers, setLayers] = useState([]);
+  const [activeTab, setActiveTab] = useState('station');
 
   useEffect(() => {
     if (config) {
@@ -22,19 +26,33 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
       setTheme(config.theme || 'dark');
       setLayout(config.layout || 'modern');
       setDxClusterSource(config.dxClusterSource || 'dxspider-proxy');
-      // Use locator from config, or calculate from coordinates
-      if (config.locator) {
-        setGridSquare(config.locator);
-      } else if (config.location?.lat && config.location?.lon) {
+      if (config.location?.lat && config.location?.lon) {
         setGridSquare(calculateGridSquare(config.location.lat, config.location.lon));
       }
     }
   }, [config, isOpen]);
 
-  // Update lat/lon when grid square changes
+  // Load layers when panel opens
+  useEffect(() => {
+    if (isOpen && window.hamclockLayerControls) {
+      setLayers(window.hamclockLayerControls.layers || []);
+    }
+  }, [isOpen]);
+
+  // Refresh layers periodically
+  useEffect(() => {
+    if (isOpen && activeTab === 'layers') {
+      const interval = setInterval(() => {
+        if (window.hamclockLayerControls) {
+          setLayers([...window.hamclockLayerControls.layers]);
+        }
+      }, 200);
+      return () => clearInterval(interval);
+    }
+  }, [isOpen, activeTab]);
+
   const handleGridChange = (grid) => {
     setGridSquare(grid.toUpperCase());
-    // Parse grid square to lat/lon if valid (6 char)
     if (grid.length >= 4) {
       const parsed = parseGridSquare(grid);
       if (parsed) {
@@ -44,7 +62,6 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
     }
   };
 
-  // Parse grid square to coordinates
   const parseGridSquare = (grid) => {
     grid = grid.toUpperCase();
     if (grid.length < 4) return null;
@@ -67,7 +84,6 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
     return { lat, lon };
   };
 
-  // Update grid when lat/lon changes
   useEffect(() => {
     if (lat && lon) {
       setGridSquare(calculateGridSquare(lat, lon));
@@ -91,11 +107,41 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
     }
   };
 
+  const handleToggleLayer = (layerId) => {
+    if (window.hamclockLayerControls) {
+      const layer = layers.find(l => l.id === layerId);
+      const newEnabledState = !layer.enabled;
+      
+      // Update the control
+      window.hamclockLayerControls.toggleLayer(layerId, newEnabledState);
+      
+      // Force immediate UI update
+      setLayers(prevLayers => 
+        prevLayers.map(l => 
+          l.id === layerId ? { ...l, enabled: newEnabledState } : l
+        )
+      );
+      
+      // Refresh after a short delay to get the updated state
+      setTimeout(() => {
+        if (window.hamclockLayerControls) {
+          setLayers([...window.hamclockLayerControls.layers]);
+        }
+      }, 100);
+    }
+  };
+
+  const handleOpacityChange = (layerId, opacity) => {
+    if (window.hamclockLayerControls) {
+      window.hamclockLayerControls.setOpacity(layerId, opacity);
+      setLayers([...window.hamclockLayerControls.layers]);
+    }
+  };
+
   const handleSave = () => {
     onSave({
       ...config,
       callsign: callsign.toUpperCase(),
-      locator: gridSquare.toUpperCase(),
       location: { lat: parseFloat(lat), lon: parseFloat(lon) },
       theme,
       layout,
@@ -136,249 +182,381 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
         border: '2px solid var(--accent-amber)',
         borderRadius: '12px',
         padding: '24px',
-        width: '420px',
+        width: '520px',
         maxHeight: '90vh',
         overflowY: 'auto'
       }}>
         <h2 style={{ 
           color: 'var(--accent-cyan)', 
           marginTop: 0,
-          marginBottom: '16px',
+          marginBottom: '24px',
           textAlign: 'center',
           fontFamily: 'Orbitron, monospace',
           fontSize: '20px'
         }}>
-          ⚙ Station Settings
+          ⚙ Settings
         </h2>
 
-        {/* First-time setup banner */}
-        {(config?.configIncomplete || config?.callsign === 'N0CALL' || !config?.locator) && (
-          <div style={{
-            background: 'rgba(255, 193, 7, 0.15)',
-            border: '1px solid var(--accent-amber)',
-            borderRadius: '8px',
-            padding: '12px 16px',
-            marginBottom: '20px',
-            fontSize: '13px'
-          }}>
-            <div style={{ color: 'var(--accent-amber)', fontWeight: '700', marginBottom: '6px' }}>
-              👋 Welcome to OpenHamClock!
-            </div>
-            <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Please enter your callsign and grid square to get started. 
-              Your settings will be saved in your browser.
-            </div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '11px', marginTop: '8px' }}>
-              💡 Tip: For permanent config, copy <code style={{ background: 'var(--bg-tertiary)', padding: '2px 4px', borderRadius: '3px' }}>.env.example</code> to <code style={{ background: 'var(--bg-tertiary)', padding: '2px 4px', borderRadius: '3px' }}>.env</code> and set CALLSIGN and LOCATOR
-            </div>
-          </div>
-        )}
-
-        {/* Callsign */}
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Your Callsign
-          </label>
-          <input
-            type="text"
-            value={callsign}
-            onChange={(e) => setCallsign(e.target.value.toUpperCase())}
+        {/* Tab Navigation */}
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '24px',
+          borderBottom: '1px solid var(--border-color)',
+          paddingBottom: '12px'
+        }}>
+          <button
+            onClick={() => setActiveTab('station')}
             style={{
-              width: '100%',
-              padding: '12px',
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              color: 'var(--accent-amber)',
-              fontSize: '18px',
-              fontFamily: 'JetBrains Mono, monospace',
-              fontWeight: '700',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-
-        {/* Grid Square */}
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Grid Square (or enter Lat/Lon below)
-          </label>
-          <input
-            type="text"
-            value={gridSquare}
-            onChange={(e) => handleGridChange(e.target.value)}
-            placeholder="FN20nc"
-            maxLength={6}
-            style={{
-              width: '100%',
-              padding: '12px',
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              color: 'var(--accent-amber)',
-              fontSize: '18px',
-              fontFamily: 'JetBrains Mono, monospace',
-              fontWeight: '700',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-
-        {/* Lat/Lon */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-          <div>
-            <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
-              Latitude
-            </label>
-            <input
-              type="number"
-              step="0.000001"
-              value={lat}
-              onChange={(e) => setLat(parseFloat(e.target.value))}
-              style={{
-                width: '100%',
-                padding: '10px',
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '6px',
-                color: 'var(--text-primary)',
-                fontSize: '14px',
-                fontFamily: 'JetBrains Mono, monospace',
-                boxSizing: 'border-box'
-              }}
-            />
-          </div>
-          <div>
-            <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
-              Longitude
-            </label>
-            <input
-              type="number"
-              step="0.000001"
-              value={lon}
-              onChange={(e) => setLon(parseFloat(e.target.value))}
-              style={{
-                width: '100%',
-                padding: '10px',
-                background: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '6px',
-                color: 'var(--text-primary)',
-                fontSize: '14px',
-                fontFamily: 'JetBrains Mono, monospace',
-                boxSizing: 'border-box'
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Use My Location button */}
-        <button
-          onClick={handleUseLocation}
-          style={{
-            width: '100%',
-            padding: '10px',
-            background: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-color)',
-            borderRadius: '6px',
-            color: 'var(--text-secondary)',
-            fontSize: '13px',
-            cursor: 'pointer',
-            marginBottom: '20px'
-          }}
-        >
-          📍 Use My Current Location
-        </button>
-
-        {/* Theme */}
-        <div style={{ marginBottom: '8px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Theme
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-            {['dark', 'light', 'legacy', 'retro'].map((t) => (
-              <button
-                key={t}
-                onClick={() => setTheme(t)}
-                style={{
-                  padding: '10px',
-                  background: theme === t ? 'var(--accent-amber)' : 'var(--bg-tertiary)',
-                  border: `1px solid ${theme === t ? 'var(--accent-amber)' : 'var(--border-color)'}`,
-                  borderRadius: '6px',
-                  color: theme === t ? '#000' : 'var(--text-secondary)',
-                  fontSize: '12px',
-                  cursor: 'pointer',
-                  fontWeight: theme === t ? '600' : '400'
-                }}
-              >
-                {t === 'dark' ? '🌙' : t === 'light' ? '☀️' : t === 'legacy' ? '💻' : '🪟'} {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-            {themeDescriptions[theme]}
-          </div>
-        </div>
-
-        {/* Layout */}
-        <div style={{ marginBottom: '8px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            Layout
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-            {['modern', 'classic'].map((l) => (
-              <button
-                key={l}
-                onClick={() => setLayout(l)}
-                style={{
-                  padding: '10px',
-                  background: layout === l ? 'var(--accent-amber)' : 'var(--bg-tertiary)',
-                  border: `1px solid ${layout === l ? 'var(--accent-amber)' : 'var(--border-color)'}`,
-                  borderRadius: '6px',
-                  color: layout === l ? '#000' : 'var(--text-secondary)',
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  fontWeight: layout === l ? '600' : '400'
-                }}
-              >
-                {l === 'modern' ? '🖥️' : '📺'} {l.charAt(0).toUpperCase() + l.slice(1)}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-            {layoutDescriptions[layout]}
-          </div>
-        </div>
-
-        {/* DX Cluster Source */}
-        <div style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
-            DX Cluster Source
-          </label>
-          <select
-            value={dxClusterSource}
-            onChange={(e) => setDxClusterSource(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px',
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '6px',
-              color: 'var(--accent-green)',
-              fontSize: '14px',
-              fontFamily: 'JetBrains Mono, monospace',
-              cursor: 'pointer'
+              flex: 1,
+              padding: '10px',
+              background: activeTab === 'station' ? 'var(--accent-amber)' : 'transparent',
+              border: 'none',
+              borderRadius: '6px 6px 0 0',
+              color: activeTab === 'station' ? '#000' : 'var(--text-secondary)',
+              fontSize: '13px',
+              cursor: 'pointer',
+              fontWeight: activeTab === 'station' ? '700' : '400',
+              fontFamily: 'JetBrains Mono, monospace'
             }}
           >
-            <option value="dxspider-proxy">⭐ DX Spider Proxy (Recommended)</option>
-            <option value="hamqth">HamQTH Cluster</option>
-            <option value="dxwatch">DXWatch</option>
-            <option value="auto">Auto (try all sources)</option>
-          </select>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
-            → Real-time DX Spider feed via our dedicated proxy service
-          </div>
+            📡 Station
+          </button>
+          <button
+            onClick={() => setActiveTab('layers')}
+            style={{
+              flex: 1,
+              padding: '10px',
+              background: activeTab === 'layers' ? 'var(--accent-amber)' : 'transparent',
+              border: 'none',
+              borderRadius: '6px 6px 0 0',
+              color: activeTab === 'layers' ? '#000' : 'var(--text-secondary)',
+              fontSize: '13px',
+              cursor: 'pointer',
+              fontWeight: activeTab === 'layers' ? '700' : '400',
+              fontFamily: 'JetBrains Mono, monospace'
+            }}
+          >
+            🗺️ Map Layers
+          </button>
         </div>
+
+        {/* Station Settings Tab */}
+        {activeTab === 'station' && (
+          <>
+            {/* Callsign */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Your Callsign
+              </label>
+              <input
+                type="text"
+                value={callsign}
+                onChange={(e) => setCallsign(e.target.value.toUpperCase())}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  color: 'var(--accent-amber)',
+                  fontSize: '18px',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontWeight: '700',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            {/* Grid Square */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Grid Square (or enter Lat/Lon below)
+              </label>
+              <input
+                type="text"
+                value={gridSquare}
+                onChange={(e) => handleGridChange(e.target.value)}
+                placeholder="FN20nc"
+                maxLength={6}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  color: 'var(--accent-amber)',
+                  fontSize: '18px',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontWeight: '700',
+                  boxSizing: 'border-box'
+                }}
+              />
+            </div>
+
+            {/* Lat/Lon */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
+                  Latitude
+                </label>
+                <input
+                  type="number"
+                  step="0.000001"
+//                  value={lat}
+//                  onChange={(e) => setLat(parseFloat(e.target.value))}
+		    value={isNaN(lat) ? '' : lat}
+                    onChange={(e) => setLat(parseFloat(e.target.value) || 0)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
+                  Longitude
+                </label>
+                <input
+                  type="number"
+                  step="0.000001"
+//                  value={lon}
+//                  onChange={(e) => setLon(parseFloat(e.target.value))}
+                    value={isNaN(lon) ? '' : lon}
+                    onChange={(e) => setLon(parseFloat(e.target.value) || 0)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px',
+                    color: 'var(--text-primary)',
+                    fontSize: '14px',
+                    fontFamily: 'JetBrains Mono, monospace',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleUseLocation}
+              style={{
+                width: '100%',
+                padding: '10px',
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                color: 'var(--text-secondary)',
+                fontSize: '13px',
+                cursor: 'pointer',
+                marginBottom: '20px'
+              }}
+            >
+              📍 Use My Current Location
+            </button>
+
+            {/* Theme */}
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Theme
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+                {['dark', 'light', 'legacy', 'retro'].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setTheme(t)}
+                    style={{
+                      padding: '10px',
+                      background: theme === t ? 'var(--accent-amber)' : 'var(--bg-tertiary)',
+                      border: `1px solid ${theme === t ? 'var(--accent-amber)' : 'var(--border-color)'}`,
+                      borderRadius: '6px',
+                      color: theme === t ? '#000' : 'var(--text-secondary)',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      fontWeight: theme === t ? '600' : '400'
+                    }}
+                  >
+                    {t === 'dark' ? '🌙' : t === 'light' ? '☀️' : t === 'legacy' ? '💻' : '🪟'} {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                {themeDescriptions[theme]}
+              </div>
+            </div>
+
+            {/* Layout */}
+            <div style={{ marginBottom: '8px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                Layout
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                {['modern', 'classic'].map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setLayout(l)}
+                    style={{
+                      padding: '10px',
+                      background: layout === l ? 'var(--accent-amber)' : 'var(--bg-tertiary)',
+                      border: `1px solid ${layout === l ? 'var(--accent-amber)' : 'var(--border-color)'}`,
+                      borderRadius: '6px',
+                      color: layout === l ? '#000' : 'var(--text-secondary)',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      fontWeight: layout === l ? '600' : '400'
+                    }}
+                  >
+                    {l === 'modern' ? '🖥️' : '📺'} {l.charAt(0).toUpperCase() + l.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                {layoutDescriptions[layout]}
+              </div>
+            </div>
+
+            {/* DX Cluster Source */}
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                DX Cluster Source
+              </label>
+              <select
+                value={dxClusterSource}
+                onChange={(e) => setDxClusterSource(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  color: 'var(--accent-green)',
+                  fontSize: '14px',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value="dxspider-proxy">⭐ DX Spider Proxy (Recommended)</option>
+                <option value="hamqth">HamQTH Cluster</option>
+                <option value="dxwatch">DXWatch</option>
+                <option value="auto">Auto (try all sources)</option>
+              </select>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '6px' }}>
+                → Real-time DX Spider feed via our dedicated proxy service
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Map Layers Tab */}
+        {activeTab === 'layers' && (
+          <div>
+            {layers.length > 0 ? (
+              layers.map(layer => (
+                <div key={layer.id} style={{
+                  background: 'var(--bg-tertiary)',
+                  border: `1px solid ${layer.enabled ? 'var(--accent-amber)' : 'var(--border-color)'}`,
+                  borderRadius: '8px',
+                  padding: '14px',
+                  marginBottom: '12px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      cursor: 'pointer',
+                      flex: 1
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={layer.enabled}
+                        onChange={() => handleToggleLayer(layer.id)}
+                        style={{
+                          width: '18px',
+                          height: '18px',
+                          cursor: 'pointer'
+                        }}
+                      />
+                      <span style={{ fontSize: '18px' }}>{layer.icon}</span>
+                      <div>
+                        <div style={{
+                          color: layer.enabled ? 'var(--accent-amber)' : 'var(--text-primary)',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          fontFamily: 'JetBrains Mono, monospace'
+                        }}>
+                          {layer.name}
+                        </div>
+                        {layer.description && (
+                          <div style={{
+                            fontSize: '11px',
+                            color: 'var(--text-muted)',
+                            marginTop: '2px'
+                          }}>
+                            {layer.description}
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                    <span style={{
+                      fontSize: '11px',
+                      textTransform: 'uppercase',
+                      color: 'var(--text-secondary)',
+                      background: 'var(--bg-hover)',
+                      padding: '2px 8px',
+                      borderRadius: '3px'
+                    }}>
+                      {layer.category}
+                    </span>
+                  </div>
+
+                  {layer.enabled && (
+                    <div style={{ paddingLeft: '38px', marginTop: '12px' }}>
+                      <label style={{
+                        display: 'block',
+                        fontSize: '11px',
+                        color: 'var(--text-muted)',
+                        marginBottom: '6px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Opacity: {Math.round(layer.opacity * 100)}%
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={layer.opacity * 100}
+                        onChange={(e) => handleOpacityChange(layer.id, parseFloat(e.target.value) / 100)}
+                        style={{
+                          width: '100%',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div style={{
+                textAlign: 'center',
+                padding: '40px 20px',
+                color: 'var(--text-muted)',
+                fontSize: '13px'
+              }}>
+                No map layers available
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Buttons */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '24px' }}>
