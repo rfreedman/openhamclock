@@ -106,7 +106,8 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
   const themeDescriptions = {
     dark: '→ Modern dark theme (default)',
     light: '→ Light theme for daytime use',
-    legacy: '→ Classic green terminal style'
+    legacy: '→ Green terminal CRT style',
+    classic: '→ 90s Windows retro style'
   };
 
   const layoutDescriptions = {
@@ -268,8 +269,8 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
           <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px' }}>
             Theme
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            {['dark', 'light', 'legacy'].map((t) => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
+            {['dark', 'light', 'legacy', 'classic'].map((t) => (
               <button
                 key={t}
                 onClick={() => setTheme(t)}
@@ -279,12 +280,12 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
                   border: `1px solid ${theme === t ? 'var(--accent-amber)' : 'var(--border-color)'}`,
                   borderRadius: '6px',
                   color: theme === t ? '#000' : 'var(--text-secondary)',
-                  fontSize: '13px',
+                  fontSize: '12px',
                   cursor: 'pointer',
                   fontWeight: theme === t ? '600' : '400'
                 }}
               >
-                {t === 'dark' ? '🌙' : t === 'light' ? '☀️' : '💻'} {t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === 'dark' ? '🌙' : t === 'light' ? '☀️' : t === 'legacy' ? '💻' : '🪟'} {t.charAt(0).toUpperCase() + t.slice(1)}
               </button>
             ))}
           </div>

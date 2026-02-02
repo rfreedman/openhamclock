@@ -47,7 +47,7 @@
 }
 
 /* ============================================
-   THEME: LEGACY (Classic HamClock Style)
+   THEME: LEGACY (Green Terminal Style)
    ============================================ */
 [data-theme="legacy"] {
   --bg-primary: #000000;
@@ -70,6 +70,34 @@
   --scanline-opacity: 0.05;
 }
 
+/* ============================================
+   THEME: CLASSIC (90s Windows Style)
+   ============================================ */
+[data-theme="classic"] {
+  --bg-primary: #008080;
+  --bg-secondary: #c0c0c0;
+  --bg-tertiary: #dfdfdf;
+  --bg-panel: #c0c0c0;
+  --border-color: #808080;
+  --border-light: #ffffff;
+  --border-dark: #404040;
+  --text-primary: #000000;
+  --text-secondary: #000000;
+  --text-muted: #404040;
+  --accent-amber: #ffff00;
+  --accent-amber-dim: #c0c000;
+  --accent-green: #00ff00;
+  --accent-green-dim: #00c000;
+  --accent-red: #ff0000;
+  --accent-blue: #000080;
+  --accent-cyan: #008080;
+  --accent-purple: #800080;
+  --title-bar: linear-gradient(90deg, #000080, #1084d0);
+  --title-bar-text: #ffffff;
+  --map-ocean: #000080;
+  --scanline-opacity: 0;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
@@ -87,6 +115,12 @@ body {
   font-family: 'JetBrains Mono', monospace !important;
 }
 
+/* Classic theme uses system fonts */
+[data-theme="classic"] body,
+[data-theme="classic"] * {
+  font-family: 'Tahoma', 'MS Sans Serif', 'Arial', sans-serif !important;
+}
+
 /* Subtle scanline effect */
 body::before {
   content: '';
@@ -95,6 +129,191 @@ body::before {
   background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,var(--scanline-opacity)) 2px, rgba(0,0,0,var(--scanline-opacity)) 4px);
   pointer-events: none;
   z-index: 9999;
+}
+
+/* ============================================
+   CLASSIC THEME - 90s WINDOWS STYLING
+   ============================================ */
+
+/* 3D Beveled border effect for classic theme */
+[data-theme="classic"] .panel {
+  background: #c0c0c0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: 
+    inset -1px -1px 0 #404040,
+    inset 1px 1px 0 #ffffff,
+    inset -2px -2px 0 #808080,
+    inset 2px 2px 0 #dfdfdf !important;
+  backdrop-filter: none !important;
+}
+
+/* Classic window title bar style */
+[data-theme="classic"] .panel-header,
+[data-theme="classic"] .panel > div:first-child {
+  background: linear-gradient(90deg, #000080, #1084d0) !important;
+  color: #ffffff !important;
+  font-weight: bold !important;
+  padding: 2px 4px !important;
+  margin: -10px -10px 8px -10px !important;
+  font-size: 12px !important;
+}
+
+/* Classic buttons */
+[data-theme="classic"] button,
+[data-theme="classic"] .map-style-btn {
+  background: #c0c0c0 !important;
+  color: #000000 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: 
+    inset -1px -1px 0 #404040,
+    inset 1px 1px 0 #ffffff,
+    inset -2px -2px 0 #808080,
+    inset 2px 2px 0 #dfdfdf !important;
+  font-family: 'Tahoma', 'MS Sans Serif', sans-serif !important;
+  font-size: 11px !important;
+  padding: 4px 12px !important;
+}
+
+[data-theme="classic"] button:hover,
+[data-theme="classic"] .map-style-btn:hover {
+  background: #dfdfdf !important;
+}
+
+[data-theme="classic"] button:active,
+[data-theme="classic"] .map-style-btn:active,
+[data-theme="classic"] .map-style-btn.active {
+  box-shadow: 
+    inset 1px 1px 0 #404040,
+    inset -1px -1px 0 #ffffff,
+    inset 2px 2px 0 #808080,
+    inset -2px -2px 0 #dfdfdf !important;
+}
+
+/* Classic inputs */
+[data-theme="classic"] input,
+[data-theme="classic"] select {
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: 
+    inset 1px 1px 0 #404040,
+    inset -1px -1px 0 #ffffff,
+    inset 2px 2px 0 #808080,
+    inset -2px -2px 0 #dfdfdf !important;
+  font-family: 'Tahoma', 'MS Sans Serif', sans-serif !important;
+  font-size: 11px !important;
+  padding: 2px 4px !important;
+}
+
+/* Classic scrollbars */
+[data-theme="classic"] ::-webkit-scrollbar {
+  width: 16px;
+  height: 16px;
+}
+
+[data-theme="classic"] ::-webkit-scrollbar-track {
+  background: #c0c0c0;
+  background-image: 
+    linear-gradient(45deg, #808080 25%, transparent 25%),
+    linear-gradient(-45deg, #808080 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #808080 75%),
+    linear-gradient(-45deg, transparent 75%, #808080 75%);
+  background-size: 4px 4px;
+  background-position: 0 0, 0 2px, 2px -2px, -2px 0px;
+}
+
+[data-theme="classic"] ::-webkit-scrollbar-thumb {
+  background: #c0c0c0;
+  border-radius: 0;
+  box-shadow: 
+    inset -1px -1px 0 #404040,
+    inset 1px 1px 0 #ffffff,
+    inset -2px -2px 0 #808080,
+    inset 2px 2px 0 #dfdfdf;
+}
+
+[data-theme="classic"] ::-webkit-scrollbar-button {
+  background: #c0c0c0;
+  box-shadow: 
+    inset -1px -1px 0 #404040,
+    inset 1px 1px 0 #ffffff;
+  width: 16px;
+  height: 16px;
+}
+
+/* Classic links */
+[data-theme="classic"] a {
+  color: #0000ff !important;
+  text-decoration: underline !important;
+}
+
+[data-theme="classic"] a:visited {
+  color: #800080 !important;
+}
+
+/* Classic header styling */
+[data-theme="classic"] [style*="gridColumn: '1 / -1'"] {
+  background: #c0c0c0 !important;
+}
+
+/* Classic text colors override */
+[data-theme="classic"] [style*="color: var(--accent-cyan)"],
+[data-theme="classic"] [style*="color: var(--accent-amber)"],
+[data-theme="classic"] [style*="color: var(--accent-green)"] {
+  color: #000080 !important;
+}
+
+/* Classic modal/dialog styling */
+[data-theme="classic"] [style*="position: fixed"][style*="background: rgba"] {
+  background: rgba(0, 128, 128, 0.9) !important;
+}
+
+/* Classic table styling for DX cluster */
+[data-theme="classic"] table,
+[data-theme="classic"] [style*="display: grid"] {
+  border-collapse: collapse;
+}
+
+[data-theme="classic"] tr:nth-child(even) {
+  background: #dfdfdf;
+}
+
+[data-theme="classic"] tr:nth-child(odd) {
+  background: #c0c0c0;
+}
+
+/* Classic Leaflet overrides */
+[data-theme="classic"] .leaflet-container {
+  background: #000080 !important;
+}
+
+[data-theme="classic"] .leaflet-control-zoom {
+  border-radius: 0 !important;
+}
+
+[data-theme="classic"] .leaflet-control-zoom a {
+  background: #c0c0c0 !important;
+  color: #000000 !important;
+  border-radius: 0 !important;
+  box-shadow: 
+    inset -1px -1px 0 #404040,
+    inset 1px 1px 0 #ffffff !important;
+}
+
+[data-theme="classic"] .leaflet-popup-content-wrapper {
+  background: #c0c0c0 !important;
+  border-radius: 0 !important;
+  box-shadow: 
+    inset -1px -1px 0 #404040,
+    inset 1px 1px 0 #ffffff,
+    2px 2px 4px rgba(0,0,0,0.5) !important;
+}
+
+[data-theme="classic"] .leaflet-popup-tip {
+  background: #c0c0c0 !important;
 }
 
 /* ============================================
@@ -118,6 +337,13 @@ body::before {
 [data-theme="legacy"] .loading-spinner {
   border-color: var(--accent-green);
   border-top-color: var(--accent-amber);
+}
+
+/* Classic theme uses hourglass cursor for loading */
+[data-theme="classic"] .loading-spinner {
+  border-radius: 0;
+  border-color: #000000;
+  border-top-color: #808080;
 }
 
 /* ============================================
@@ -196,6 +422,13 @@ body::before {
   width: 24px;
   height: 24px;
   border: 2px solid #aaaacc;
+}
+
+/* Classic theme markers - square */
+[data-theme="classic"] .custom-marker,
+[data-theme="classic"] .de-marker,
+[data-theme="classic"] .dx-marker {
+  border-radius: 0 !important;
 }
 
 /* ============================================
@@ -306,6 +539,15 @@ body::before {
 
 .dx-tooltip-highlighted::before {
   border-top-color: #ffffff !important;
+}
+
+/* Classic tooltips */
+[data-theme="classic"] .dx-tooltip {
+  background: #ffffcc !important;
+  border: 1px solid #000000 !important;
+  border-radius: 0 !important;
+  color: #000000 !important;
+  box-shadow: 2px 2px 0 #000000 !important;
 }
 
 /* ============================================
