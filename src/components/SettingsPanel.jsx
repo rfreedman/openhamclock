@@ -9,7 +9,7 @@ import { LANGUAGES } from '../lang/i18n.js';
 
 export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
   const [callsign, setCallsign] = useState(config?.callsign || '');
-  const [callsignSize, setCallsignSize] = useState(config?.callsignSize || 1.0);
+  const [headerSize, setheaderSize] = useState(config?.headerSize || 1.0);
   const [gridSquare, setGridSquare] = useState('');
   const [lat, setLat] = useState(config?.location?.lat || 0);
   const [lon, setLon] = useState(config?.location?.lon || 0);
@@ -26,7 +26,7 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
   useEffect(() => {
     if (config) {
       setCallsign(config.callsign || '');
-      setCallsignSize(config.callsignSize || 1.0)
+      setheaderSize(config.headerSize || 1.0)
       setLat(config.location?.lat || 0);
       setLon(config.location?.lon || 0);
       setTheme(config.theme || 'dark');
@@ -149,7 +149,7 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
     onSave({
       ...config,
       callsign: callsign.toUpperCase(),
-      callsignSize: callsignSize,
+      headerSize: headerSize,
       location: { lat: parseFloat(lat), lon: parseFloat(lon) },
       theme,
       layout,
@@ -309,15 +309,15 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave }) => {
             <div style={{ marginBottom: '20px'}}>
               <div>
                 <label style={{ display: 'block', marginBottom: '6px', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
-                  {t('station.settings.callsignSize')}
+                  {t('station.settings.headerSize')}
                 </label>
                 <input
                   type="number"
                   step="0.1"
-                  value={isNaN(lat) ? '' : callsignSize}
+                  value={isNaN(lat) ? '' : headerSize}
                   onChange={(e) => {
                     if (e.target.value >= 0.1 && e.target.value <= 2.0) {
-                      setCallsignSize(e.target.value)
+                      setheaderSize(e.target.value)
                     }}}
                   style={{
                     width: '100%',

@@ -37,8 +37,8 @@ export const Header = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
         <span
           style={{
-            fontSize: config.callsignSize > 0.1 && config.callsignSize <= 2
-              ? `${22 * config.callsignSize}px`
+            fontSize: config.headerSize > 0.1 && config.headerSize <= 2
+              ? `${22 * config.headerSize}px`
               : "22px", fontWeight: '900', color: 'var(--accent-amber)', cursor: 'pointer', fontFamily: 'Orbitron, monospace', whiteSpace: 'nowrap'
           }}
           onClick={onSettingsClick}
@@ -53,7 +53,9 @@ export const Header = ({
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
         <span style={{ fontSize: '13px', color: 'var(--accent-cyan)', fontWeight: '600' }}>UTC</span>
         <span style={{
-          fontSize: '24px',
+          fontSize: config.headerSize > 0.1 && config.headerSize <= 2
+              ? `${24 * config.headerSize}px`
+              : "24px",
           fontWeight: '700',
           color: 'var(--accent-cyan)',
           fontFamily: 'JetBrains Mono, Consolas, monospace',
@@ -70,7 +72,9 @@ export const Header = ({
       >
         <span style={{ fontSize: '13px', color: 'var(--accent-amber)', fontWeight: '600' }}>LOCAL</span>
         <span style={{
-          fontSize: '24px',
+          fontSize: config.headerSize > 0.1 && config.headerSize <= 2
+              ? `${24 * config.headerSize}px`
+              : "24px",
           fontWeight: '700',
           color: 'var(--accent-amber)',
           fontFamily: 'JetBrains Mono, Consolas, monospace',
@@ -90,8 +94,18 @@ export const Header = ({
           const windLabel = localWeather.data.windUnit || 'mph';
           return (
             <div title={`${localWeather.data.description} • Wind: ${localWeather.data.windSpeed} ${windLabel}`}>
-              <span style={{ marginRight: '3px' }}>{localWeather.data.icon}</span>
-              <span style={{ color: 'var(--accent-cyan)', fontWeight: '600' }}>
+              <span style={{ marginRight: '3px', 
+                fontSize: config.headerSize > 0.1 && config.headerSize <= 2
+                  ? `${12 * config.headerSize}px`
+                  : "12px",
+               }}>
+                {localWeather.data.icon}
+              </span>
+              <span style={{ color: 'var(--accent-cyan)', fontWeight: '600',
+                fontSize: config.headerSize > 0.1 && config.headerSize <= 2
+                  ? `${12 * config.headerSize}px`
+                  : "12px",
+               }}>
                 {tempF}°F/{tempC}°C
               </span>
             </div>
