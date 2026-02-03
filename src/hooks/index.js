@@ -16,3 +16,4 @@ export { useDXpeditions } from './useDXpeditions.js';
 export { useSatellites } from './useSatellites.js';
 export { useSolarIndices } from './useSolarIndices.js';
 export { usePSKReporter } from './usePSKReporter.js';
+export { useWSJTX } from './useWSJTX.js';

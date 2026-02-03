@@ -1,0 +1,104 @@
+/**
+ * useWSJTX Hook
+ * Polls the server for WSJT-X UDP data (decoded messages, status, QSOs)
+ * 
+ * WSJT-X sends decoded FT8/FT4/JT65/WSPR messages over UDP.
+ * The server listens on the configured port and this hook fetches the results.
+ */
+import { useState, useEffect, useCallback, useRef } from 'react';
+
+const POLL_INTERVAL = 2000; // Poll every 2 seconds for near-real-time feel
+const API_URL = '/api/wsjtx';
+const DECODES_URL = '/api/wsjtx/decodes';
+
+export function useWSJTX(enabled = true) {
+  const [data, setData] = useState({
+    clients: {},
+    decodes: [],
+    qsos: [],
+    wspr: [],
+    stats: { totalDecodes: 0, totalQsos: 0, totalWspr: 0, activeClients: 0 },
+    enabled: false,
+    port: 2237,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const lastTimestamp = useRef(0);
+  const fullFetchCounter = useRef(0);
+
+  // Lightweight poll - just new decodes since last check
+  const pollDecodes = useCallback(async () => {
+    if (!enabled) return;
+    try {
+      const url = lastTimestamp.current 
+        ? `${DECODES_URL}?since=${lastTimestamp.current}`
+        : DECODES_URL;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      
+      if (json.decodes?.length > 0) {
+        setData(prev => {
+          // Merge new decodes, dedup by id, keep last 200
+          const existing = new Set(prev.decodes.map(d => d.id));
+          const newDecodes = json.decodes.filter(d => !existing.has(d.id));
+          if (newDecodes.length === 0) return prev;
+          
+          const merged = [...prev.decodes, ...newDecodes].slice(-200);
+          return { ...prev, decodes: merged, stats: { ...prev.stats, totalDecodes: merged.length } };
+        });
+      }
+      
+      lastTimestamp.current = json.timestamp || Date.now();
+      setError(null);
+    } catch (e) {
+      // Silent fail for lightweight polls
+    }
+  }, [enabled]);
+
+  // Full fetch - get everything including status, QSOs, clients
+  const fetchFull = useCallback(async () => {
+    if (!enabled) return;
+    try {
+      const res = await fetch(API_URL);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      setData(json);
+      lastTimestamp.current = Date.now();
+      setLoading(false);
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+      setLoading(false);
+    }
+  }, [enabled]);
+
+  // Initial full fetch
+  useEffect(() => {
+    if (enabled) fetchFull();
+  }, [enabled, fetchFull]);
+
+  // Polling - mostly lightweight, full refresh every 15s
+  useEffect(() => {
+    if (!enabled) return;
+    
+    const interval = setInterval(() => {
+      fullFetchCounter.current++;
+      if (fullFetchCounter.current >= 8) { // Every ~16 seconds
+        fullFetchCounter.current = 0;
+        fetchFull();
+      } else {
+        pollDecodes();
+      }
+    }, POLL_INTERVAL);
+    
+    return () => clearInterval(interval);
+  }, [enabled, fetchFull, pollDecodes]);
+
+  return {
+    ...data,
+    loading,
+    error,
+    refresh: fetchFull,
+  };
+}

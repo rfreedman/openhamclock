@@ -22,6 +22,7 @@ const compression = require('compression');
 const path = require('path');
 const fetch = require('node-fetch');
 const net = require('net');
+const dgram = require('dgram');
 const fs = require('fs');
 
 // Auto-create .env from .env.example on first run
@@ -3621,6 +3622,519 @@ app.get('/api/config', (req, res) => {
 });
 
 // ============================================
+// WSJT-X UDP LISTENER
+// ============================================
+// Receives decoded messages from WSJT-X, JTDX, etc.
+// Configure WSJT-X: Settings > Reporting > UDP Server > address/port
+// Protocol: QDataStream binary format per NetworkMessage.hpp
+
+const WSJTX_UDP_PORT = parseInt(process.env.WSJTX_UDP_PORT || '2237');
+const WSJTX_ENABLED = process.env.WSJTX_ENABLED !== 'false'; // enabled by default
+const WSJTX_MAX_DECODES = 200; // max decodes to keep in memory
+const WSJTX_MAX_AGE = 30 * 60 * 1000; // 30 minutes
+
+// WSJT-X protocol magic number
+const WSJTX_MAGIC = 0xADBCCBDA;
+
+// Message types
+const WSJTX_MSG = {
+  HEARTBEAT: 0,
+  STATUS: 1,
+  DECODE: 2,
+  CLEAR: 3,
+  REPLY: 4,
+  QSO_LOGGED: 5,
+  CLOSE: 6,
+  REPLAY: 7,
+  HALT_TX: 8,
+  FREE_TEXT: 9,
+  WSPR_DECODE: 10,
+  LOCATION: 11,
+  LOGGED_ADIF: 12,
+  HIGHLIGHT_CALLSIGN: 13,
+  SWITCH_CONFIG: 14,
+  CONFIGURE: 15,
+};
+
+// In-memory store
+const wsjtxState = {
+  clients: {},    // clientId -> { status, lastSeen }
+  decodes: [],    // decoded messages (ring buffer)
+  qsos: [],       // logged QSOs
+  wspr: [],       // WSPR decodes
+};
+
+/**
+ * QDataStream binary reader for WSJT-X protocol
+ * Reads big-endian Qt-serialized data types
+ */
+class WSJTXReader {
+  constructor(buffer) {
+    this.buf = buffer;
+    this.offset = 0;
+  }
+  
+  remaining() { return this.buf.length - this.offset; }
+  
+  readUInt8() {
+    if (this.remaining() < 1) return null;
+    const v = this.buf.readUInt8(this.offset);
+    this.offset += 1;
+    return v;
+  }
+  
+  readInt32() {
+    if (this.remaining() < 4) return null;
+    const v = this.buf.readInt32BE(this.offset);
+    this.offset += 4;
+    return v;
+  }
+  
+  readUInt32() {
+    if (this.remaining() < 4) return null;
+    const v = this.buf.readUInt32BE(this.offset);
+    this.offset += 4;
+    return v;
+  }
+  
+  readUInt64() {
+    if (this.remaining() < 8) return null;
+    // JavaScript can't do 64-bit ints natively, use BigInt or approximate
+    const high = this.buf.readUInt32BE(this.offset);
+    const low = this.buf.readUInt32BE(this.offset + 4);
+    this.offset += 8;
+    return high * 0x100000000 + low;
+  }
+  
+  readBool() {
+    const v = this.readUInt8();
+    return v === null ? null : v !== 0;
+  }
+  
+  readDouble() {
+    if (this.remaining() < 8) return null;
+    const v = this.buf.readDoubleBE(this.offset);
+    this.offset += 8;
+    return v;
+  }
+  
+  // Qt utf8 string: uint32 length + bytes (0xFFFFFFFF = null)
+  readUtf8() {
+    const len = this.readUInt32();
+    if (len === null || len === 0xFFFFFFFF) return null;
+    if (len === 0) return '';
+    if (this.remaining() < len) return null;
+    const str = this.buf.toString('utf8', this.offset, this.offset + len);
+    this.offset += len;
+    return str;
+  }
+  
+  // QTime: uint32 milliseconds since midnight
+  readQTime() {
+    const ms = this.readUInt32();
+    if (ms === null) return null;
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return { ms, hours: h, minutes: m, seconds: s, 
+             formatted: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}` };
+  }
+  
+  // QDateTime: QDate (int64 julian day) + QTime (uint32 ms) + timespec
+  readQDateTime() {
+    const julianDay = this.readUInt64();
+    const time = this.readQTime();
+    const timeSpec = this.readUInt8();
+    if (timeSpec === 2) this.readInt32(); // UTC offset
+    return { julianDay, time, timeSpec };
+  }
+}
+
+/**
+ * Parse a WSJT-X UDP datagram
+ */
+function parseWSJTXMessage(buffer) {
+  const reader = new WSJTXReader(buffer);
+  
+  // Header
+  const magic = reader.readUInt32();
+  if (magic !== WSJTX_MAGIC) return null;
+  
+  const schema = reader.readUInt32();
+  const type = reader.readUInt32();
+  const id = reader.readUtf8();
+  
+  if (type === null || id === null) return null;
+  
+  const msg = { type, id, schema, timestamp: Date.now() };
+  
+  try {
+    switch (type) {
+      case WSJTX_MSG.HEARTBEAT: {
+        msg.maxSchema = reader.readUInt32();
+        msg.version = reader.readUtf8();
+        msg.revision = reader.readUtf8();
+        break;
+      }
+      
+      case WSJTX_MSG.STATUS: {
+        msg.dialFrequency = reader.readUInt64();
+        msg.mode = reader.readUtf8();
+        msg.dxCall = reader.readUtf8();
+        msg.report = reader.readUtf8();
+        msg.txMode = reader.readUtf8();
+        msg.txEnabled = reader.readBool();
+        msg.transmitting = reader.readBool();
+        msg.decoding = reader.readBool();
+        msg.rxDF = reader.readUInt32();
+        msg.txDF = reader.readUInt32();
+        msg.deCall = reader.readUtf8();
+        msg.deGrid = reader.readUtf8();
+        msg.dxGrid = reader.readUtf8();
+        msg.txWatchdog = reader.readBool();
+        msg.subMode = reader.readUtf8();
+        msg.fastMode = reader.readBool();
+        msg.specialOp = reader.readUInt8();
+        msg.freqTolerance = reader.readUInt32();
+        msg.trPeriod = reader.readUInt32();
+        msg.configName = reader.readUtf8();
+        msg.txMessage = reader.readUtf8();
+        break;
+      }
+      
+      case WSJTX_MSG.DECODE: {
+        msg.isNew = reader.readBool();
+        msg.time = reader.readQTime();
+        msg.snr = reader.readInt32();
+        msg.deltaTime = reader.readDouble();
+        msg.deltaFreq = reader.readUInt32();
+        msg.mode = reader.readUtf8();
+        msg.message = reader.readUtf8();
+        msg.lowConfidence = reader.readBool();
+        msg.offAir = reader.readBool();
+        break;
+      }
+      
+      case WSJTX_MSG.CLEAR: {
+        msg.window = reader.readUInt8();
+        break;
+      }
+      
+      case WSJTX_MSG.QSO_LOGGED: {
+        msg.dateTimeOff = reader.readQDateTime();
+        msg.dxCall = reader.readUtf8();
+        msg.dxGrid = reader.readUtf8();
+        msg.txFrequency = reader.readUInt64();
+        msg.mode = reader.readUtf8();
+        msg.reportSent = reader.readUtf8();
+        msg.reportRecv = reader.readUtf8();
+        msg.txPower = reader.readUtf8();
+        msg.comments = reader.readUtf8();
+        msg.name = reader.readUtf8();
+        msg.dateTimeOn = reader.readQDateTime();
+        msg.operatorCall = reader.readUtf8();
+        msg.myCall = reader.readUtf8();
+        msg.myGrid = reader.readUtf8();
+        msg.exchangeSent = reader.readUtf8();
+        msg.exchangeRecv = reader.readUtf8();
+        msg.adifPropMode = reader.readUtf8();
+        break;
+      }
+      
+      case WSJTX_MSG.WSPR_DECODE: {
+        msg.isNew = reader.readBool();
+        msg.time = reader.readQTime();
+        msg.snr = reader.readInt32();
+        msg.deltaTime = reader.readDouble();
+        msg.frequency = reader.readUInt64();
+        msg.drift = reader.readInt32();
+        msg.callsign = reader.readUtf8();
+        msg.grid = reader.readUtf8();
+        msg.power = reader.readInt32();
+        msg.offAir = reader.readBool();
+        break;
+      }
+      
+      case WSJTX_MSG.LOGGED_ADIF: {
+        msg.adif = reader.readUtf8();
+        break;
+      }
+      
+      case WSJTX_MSG.CLOSE:
+        break;
+        
+      default:
+        // Unknown message type - ignore per protocol spec
+        return null;
+    }
+  } catch (e) {
+    // Malformed packet - ignore
+    return null;
+  }
+  
+  return msg;
+}
+
+/**
+ * Parse decoded message text to extract callsigns and grid
+ * FT8/FT4 messages follow a standard format
+ */
+function parseDecodeMessage(text) {
+  if (!text) return {};
+  const result = {};
+  
+  // CQ message: "CQ DX K1ABC FN42" or "CQ K1ABC FN42"
+  const cqMatch = text.match(/^CQ\s+(?:(\S+)\s+)?([A-Z0-9/]+)\s+([A-Z]{2}\d{2}[a-z]{0,2})?/i);
+  if (cqMatch) {
+    result.type = 'CQ';
+    result.modifier = cqMatch[1] && !cqMatch[1].match(/^[A-Z0-9/]{3,}$/) ? cqMatch[1] : null;
+    result.caller = cqMatch[2] || cqMatch[1];
+    result.grid = cqMatch[3] || null;
+    return result;
+  }
+  
+  // Standard QSO exchange: "K1ABC W2DEF +05" or "K1ABC W2DEF R-12" or "K1ABC W2DEF RR73"
+  const qsoMatch = text.match(/^([A-Z0-9/]+)\s+([A-Z0-9/]+)\s+(.*)/i);
+  if (qsoMatch) {
+    result.type = 'QSO';
+    result.dxCall = qsoMatch[1];
+    result.deCall = qsoMatch[2];
+    result.exchange = qsoMatch[3].trim();
+    // Check for grid in exchange
+    const gridMatch = result.exchange.match(/^([A-Z]{2}\d{2}[a-z]{0,2})$/i);
+    if (gridMatch) result.grid = gridMatch[1];
+    return result;
+  }
+  
+  return result;
+}
+
+/**
+ * Convert frequency in Hz to band name
+ */
+function freqToBand(freqHz) {
+  const mhz = freqHz / 1000000;
+  if (mhz >= 1.8 && mhz < 2.0) return '160m';
+  if (mhz >= 3.5 && mhz < 4.0) return '80m';
+  if (mhz >= 5.3 && mhz < 5.4) return '60m';
+  if (mhz >= 7.0 && mhz < 7.3) return '40m';
+  if (mhz >= 10.1 && mhz < 10.15) return '30m';
+  if (mhz >= 14.0 && mhz < 14.35) return '20m';
+  if (mhz >= 18.068 && mhz < 18.168) return '17m';
+  if (mhz >= 21.0 && mhz < 21.45) return '15m';
+  if (mhz >= 24.89 && mhz < 24.99) return '12m';
+  if (mhz >= 28.0 && mhz < 29.7) return '10m';
+  if (mhz >= 50.0 && mhz < 54.0) return '6m';
+  if (mhz >= 144.0 && mhz < 148.0) return '2m';
+  if (mhz >= 420.0 && mhz < 450.0) return '70cm';
+  return `${mhz.toFixed(3)} MHz`;
+}
+
+/**
+ * Handle incoming WSJT-X messages
+ */
+function handleWSJTXMessage(msg) {
+  if (!msg) return;
+  
+  switch (msg.type) {
+    case WSJTX_MSG.HEARTBEAT: {
+      wsjtxState.clients[msg.id] = {
+        ...(wsjtxState.clients[msg.id] || {}),
+        version: msg.version,
+        lastSeen: msg.timestamp
+      };
+      break;
+    }
+    
+    case WSJTX_MSG.STATUS: {
+      wsjtxState.clients[msg.id] = {
+        ...(wsjtxState.clients[msg.id] || {}),
+        lastSeen: msg.timestamp,
+        dialFrequency: msg.dialFrequency,
+        mode: msg.mode,
+        dxCall: msg.dxCall,
+        deCall: msg.deCall,
+        deGrid: msg.deGrid,
+        txEnabled: msg.txEnabled,
+        transmitting: msg.transmitting,
+        decoding: msg.decoding,
+        subMode: msg.subMode,
+        band: msg.dialFrequency ? freqToBand(msg.dialFrequency) : null,
+        configName: msg.configName,
+        txMessage: msg.txMessage,
+      };
+      break;
+    }
+    
+    case WSJTX_MSG.DECODE: {
+      const clientStatus = wsjtxState.clients[msg.id] || {};
+      const parsed = parseDecodeMessage(msg.message);
+      
+      const decode = {
+        id: `${msg.id}-${msg.timestamp}-${msg.deltaFreq}`,
+        clientId: msg.id,
+        isNew: msg.isNew,
+        time: msg.time?.formatted || '',
+        timeMs: msg.time?.ms || 0,
+        snr: msg.snr,
+        dt: msg.deltaTime ? msg.deltaTime.toFixed(1) : '0.0',
+        freq: msg.deltaFreq,
+        mode: msg.mode || clientStatus.mode || '',
+        message: msg.message,
+        lowConfidence: msg.lowConfidence,
+        offAir: msg.offAir,
+        dialFrequency: clientStatus.dialFrequency || 0,
+        band: clientStatus.band || '',
+        ...parsed,
+        timestamp: msg.timestamp,
+      };
+      
+      // Resolve grid to lat/lon for map plotting
+      if (parsed.grid) {
+        const coords = gridToLatLon(parsed.grid);
+        if (coords) {
+          decode.lat = coords.latitude;
+          decode.lon = coords.longitude;
+        }
+      }
+      
+      // Only keep new decodes (not replays)
+      if (msg.isNew) {
+        wsjtxState.decodes.push(decode);
+        
+        // Trim old decodes
+        const cutoff = Date.now() - WSJTX_MAX_AGE;
+        while (wsjtxState.decodes.length > WSJTX_MAX_DECODES || 
+               (wsjtxState.decodes.length > 0 && wsjtxState.decodes[0].timestamp < cutoff)) {
+          wsjtxState.decodes.shift();
+        }
+      }
+      break;
+    }
+    
+    case WSJTX_MSG.CLEAR: {
+      // WSJT-X cleared its band activity - optionally clear our decodes for this client
+      wsjtxState.decodes = wsjtxState.decodes.filter(d => d.clientId !== msg.id);
+      break;
+    }
+    
+    case WSJTX_MSG.QSO_LOGGED: {
+      const clientStatus = wsjtxState.clients[msg.id] || {};
+      const qso = {
+        clientId: msg.id,
+        dxCall: msg.dxCall,
+        dxGrid: msg.dxGrid,
+        frequency: msg.txFrequency,
+        band: msg.txFrequency ? freqToBand(msg.txFrequency) : '',
+        mode: msg.mode,
+        reportSent: msg.reportSent,
+        reportRecv: msg.reportRecv,
+        myCall: msg.myCall || clientStatus.deCall,
+        myGrid: msg.myGrid || clientStatus.deGrid,
+        timestamp: msg.timestamp,
+      };
+      // Resolve grid to lat/lon
+      if (msg.dxGrid) {
+        const coords = gridToLatLon(msg.dxGrid);
+        if (coords) { qso.lat = coords.latitude; qso.lon = coords.longitude; }
+      }
+      wsjtxState.qsos.push(qso);
+      // Keep last 50 QSOs
+      if (wsjtxState.qsos.length > 50) wsjtxState.qsos.shift();
+      break;
+    }
+    
+    case WSJTX_MSG.WSPR_DECODE: {
+      const wsprDecode = {
+        clientId: msg.id,
+        isNew: msg.isNew,
+        time: msg.time?.formatted || '',
+        snr: msg.snr,
+        dt: msg.deltaTime ? msg.deltaTime.toFixed(1) : '0.0',
+        frequency: msg.frequency,
+        drift: msg.drift,
+        callsign: msg.callsign,
+        grid: msg.grid,
+        power: msg.power,
+        timestamp: msg.timestamp,
+      };
+      if (msg.isNew) {
+        wsjtxState.wspr.push(wsprDecode);
+        if (wsjtxState.wspr.length > 100) wsjtxState.wspr.shift();
+      }
+      break;
+    }
+    
+    case WSJTX_MSG.CLOSE: {
+      delete wsjtxState.clients[msg.id];
+      break;
+    }
+  }
+}
+
+// Start UDP listener
+let wsjtxSocket = null;
+if (WSJTX_ENABLED) {
+  try {
+    wsjtxSocket = dgram.createSocket('udp4');
+    
+    wsjtxSocket.on('message', (buf, rinfo) => {
+      const msg = parseWSJTXMessage(buf);
+      if (msg) handleWSJTXMessage(msg);
+    });
+    
+    wsjtxSocket.on('error', (err) => {
+      logErrorOnce('WSJT-X UDP', err.message);
+    });
+    
+    wsjtxSocket.on('listening', () => {
+      const addr = wsjtxSocket.address();
+      console.log(`[WSJT-X] UDP listener on ${addr.address}:${addr.port}`);
+    });
+    
+    wsjtxSocket.bind(WSJTX_UDP_PORT, '0.0.0.0');
+  } catch (e) {
+    console.error(`[WSJT-X] Failed to start UDP listener: ${e.message}`);
+  }
+}
+
+// API endpoint: get WSJT-X data
+app.get('/api/wsjtx', (req, res) => {
+  const clients = {};
+  for (const [id, client] of Object.entries(wsjtxState.clients)) {
+    // Only include clients seen in last 5 minutes
+    if (Date.now() - client.lastSeen < 5 * 60 * 1000) {
+      clients[id] = client;
+    }
+  }
+  
+  res.json({
+    enabled: WSJTX_ENABLED,
+    port: WSJTX_UDP_PORT,
+    clients,
+    decodes: wsjtxState.decodes.slice(-100), // last 100
+    qsos: wsjtxState.qsos.slice(-20), // last 20
+    wspr: wsjtxState.wspr.slice(-50), // last 50
+    stats: {
+      totalDecodes: wsjtxState.decodes.length,
+      totalQsos: wsjtxState.qsos.length,
+      totalWspr: wsjtxState.wspr.length,
+      activeClients: Object.keys(clients).length,
+    }
+  });
+});
+
+// API endpoint: get just decodes (lightweight polling)
+app.get('/api/wsjtx/decodes', (req, res) => {
+  const since = parseInt(req.query.since) || 0;
+  const decodes = since 
+    ? wsjtxState.decodes.filter(d => d.timestamp > since)
+    : wsjtxState.decodes.slice(-100);
+  
+  res.json({ decodes, timestamp: Date.now() });
+});
+
+// ============================================
 // CATCH-ALL FOR SPA
 // ============================================
 
@@ -3663,6 +4177,9 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`  🔗 Network access: http://<your-ip>:${PORT}`);
   }
   console.log('  📡 API proxy enabled for NOAA, POTA, SOTA, DX Cluster');
+  if (WSJTX_ENABLED) {
+    console.log(`  🔊 WSJT-X UDP listener on port ${WSJTX_UDP_PORT}`);
+  }
   console.log('  🖥️  Open your browser to start using OpenHamClock');
   console.log('');
   if (CONFIG.callsign !== 'N0CALL') {

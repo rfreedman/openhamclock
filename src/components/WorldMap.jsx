@@ -27,12 +27,14 @@ export const WorldMap = ({
   dxFilters, 
   satellites, 
   pskReporterSpots,
+  wsjtxSpots,
   showDXPaths, 
   showDXLabels, 
   onToggleDXLabels, 
   showPOTA, 
   showSatellites, 
   showPSKReporter,
+  showWSJTX,
   onToggleSatellites, 
   hoveredSpot 
 }) => {
@@ -52,6 +54,7 @@ export const WorldMap = ({
   const satMarkersRef = useRef([]);
   const satTracksRef = useRef([]);
   const pskMarkersRef = useRef([]);
+  const wsjtxMarkersRef = useRef([]);
   const countriesLayerRef = useRef(null);
 
   // Plugin system refs and state
@@ -646,6 +649,87 @@ export const WorldMap = ({
       });
     }
   }, [pskReporterSpots, showPSKReporter, deLocation]);
+
+  // Update WSJT-X markers (CQ callers with grid locators)
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+
+    wsjtxMarkersRef.current.forEach(m => map.removeLayer(m));
+    wsjtxMarkersRef.current = [];
+
+    const hasValidDE = deLocation && 
+      typeof deLocation.lat === 'number' && !isNaN(deLocation.lat) &&
+      typeof deLocation.lon === 'number' && !isNaN(deLocation.lon);
+
+    if (showWSJTX && wsjtxSpots && wsjtxSpots.length > 0 && hasValidDE) {
+      // Deduplicate by callsign - keep most recent
+      const seen = new Map();
+      wsjtxSpots.forEach(spot => {
+        const call = spot.caller || spot.dxCall || '';
+        if (call && (!seen.has(call) || spot.timestamp > seen.get(call).timestamp)) {
+          seen.set(call, spot);
+        }
+      });
+
+      seen.forEach((spot, call) => {
+        let spotLat = parseFloat(spot.lat);
+        let spotLon = parseFloat(spot.lon);
+
+        if (!isNaN(spotLat) && !isNaN(spotLon)) {
+          const freqMHz = spot.dialFrequency ? (spot.dialFrequency / 1000000) : 0;
+          const bandColor = freqMHz ? getBandColor(freqMHz) : '#a78bfa';
+
+          try {
+            // Draw line from DE to CQ caller
+            const points = getGreatCirclePoints(
+              deLocation.lat, deLocation.lon,
+              spotLat, spotLon,
+              50
+            );
+
+            if (points && Array.isArray(points) && points.length > 1 &&
+                points.every(p => Array.isArray(p) && !isNaN(p[0]) && !isNaN(p[1]))) {
+              const line = L.polyline(points, {
+                color: '#a78bfa',
+                weight: 1.5,
+                opacity: 0.4,
+                dashArray: '2, 6'
+              }).addTo(map);
+              wsjtxMarkersRef.current.push(line);
+
+              const endPoint = points[points.length - 1];
+              spotLat = endPoint[0];
+              spotLon = endPoint[1];
+            }
+
+            // Diamond-shaped marker to distinguish from PSK circles
+            const diamond = L.marker([spotLat, spotLon], {
+              icon: L.divIcon({
+                className: '',
+                html: `<div style="
+                  width: 8px; height: 8px;
+                  background: ${bandColor};
+                  border: 1px solid #fff;
+                  transform: rotate(45deg);
+                  opacity: 0.9;
+                "></div>`,
+                iconSize: [8, 8],
+                iconAnchor: [4, 4]
+              })
+            }).bindPopup(`
+              <b>${call}</b> CQ<br>
+              ${spot.grid || ''} ${spot.band || ''}<br>
+              ${spot.mode || ''} SNR: ${spot.snr != null ? (spot.snr >= 0 ? '+' : '') + spot.snr : '?'} dB
+            `).addTo(map);
+            wsjtxMarkersRef.current.push(diamond);
+          } catch (err) {
+            // skip bad spots
+          }
+        }
+      });
+    }
+  }, [wsjtxSpots, showWSJTX, deLocation]);
 
   return (
     <div style={{ position: 'relative', height: '100%', minHeight: '200px' }}>

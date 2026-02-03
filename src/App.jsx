@@ -34,7 +34,8 @@ import {
   useDXpeditions,
   useSatellites,
   useSolarIndices,
-  usePSKReporter
+  usePSKReporter,
+  useWSJTX
 } from './hooks';
 
 // Utils
@@ -104,9 +105,9 @@ const App = () => {
   const [mapLayers, setMapLayers] = useState(() => {
     try {
       const stored = localStorage.getItem('openhamclock_mapLayers');
-      const defaults = { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false, showPSKReporter: true };
+      const defaults = { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false, showPSKReporter: true, showWSJTX: true };
       return stored ? { ...defaults, ...JSON.parse(stored) } : defaults;
-    } catch (e) { return { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false, showPSKReporter: true }; }
+    } catch (e) { return { showDXPaths: true, showDXLabels: true, showPOTA: true, showSatellites: false, showPSKReporter: true, showWSJTX: true }; }
   });
   
   useEffect(() => {
@@ -122,6 +123,7 @@ const App = () => {
   const togglePOTA = useCallback(() => setMapLayers(prev => ({ ...prev, showPOTA: !prev.showPOTA })), []);
   const toggleSatellites = useCallback(() => setMapLayers(prev => ({ ...prev, showSatellites: !prev.showSatellites })), []);
   const togglePSKReporter = useCallback(() => setMapLayers(prev => ({ ...prev, showPSKReporter: !prev.showPSKReporter })), []);
+  const toggleWSJTX = useCallback(() => setMapLayers(prev => ({ ...prev, showWSJTX: !prev.showWSJTX })), []);
   
   // 12/24 hour format
   const [use12Hour, setUse12Hour] = useState(() => {
@@ -208,6 +210,7 @@ const App = () => {
   const satellites = useSatellites(config.location);
   const localWeather = useLocalWeather(config.location);
   const pskReporter = usePSKReporter(config.callsign, { minutes: 15, enabled: config.callsign !== 'N0CALL' });
+  const wsjtx = useWSJTX();
 
   // Filter PSKReporter spots for map display
   const filteredPskSpots = useMemo(() => {
@@ -227,6 +230,11 @@ const App = () => {
       return true;
     });
   }, [pskReporter.txReports, pskReporter.rxReports, pskFilters]);
+
+  // Filter WSJT-X decodes for map display (only those with lat/lon from grid)
+  const wsjtxMapSpots = useMemo(() => {
+    return wsjtx.decodes.filter(d => d.lat && d.lon && d.type === 'CQ');
+  }, [wsjtx.decodes]);
 
   // Computed values
   const deGrid = useMemo(() => calculateGridSquare(config.location.lat, config.location.lon), [config.location]);
@@ -503,6 +511,8 @@ const App = () => {
                 showPOTA={mapLayers.showPOTA}
                 showSatellites={mapLayers.showSatellites}
                 showPSKReporter={mapLayers.showPSKReporter}
+                wsjtxSpots={wsjtxMapSpots}
+                showWSJTX={mapLayers.showWSJTX}
                 onToggleSatellites={toggleSatellites}
                 hoveredSpot={hoveredSpot}
               />
@@ -641,6 +651,8 @@ const App = () => {
             showPOTA={mapLayers.showPOTA}
             showSatellites={mapLayers.showSatellites}
             showPSKReporter={mapLayers.showPSKReporter}
+            wsjtxSpots={wsjtxMapSpots}
+            showWSJTX={mapLayers.showWSJTX}
             onToggleSatellites={toggleSatellites}
             hoveredSpot={hoveredSpot}
           />
@@ -677,7 +689,7 @@ const App = () => {
             />
           </div>
           
-          {/* PSKReporter - digital mode spots */}
+          {/* PSKReporter + WSJT-X - digital mode spots */}
           <div style={{ flex: '1 1 auto', minHeight: '140px', overflow: 'hidden' }}>
             <PSKReporterPanel 
               callsign={config.callsign}
@@ -690,6 +702,15 @@ const App = () => {
                   setDxLocation({ lat: report.lat, lon: report.lon, call: report.receiver || report.sender });
                 }
               }}
+              wsjtxDecodes={wsjtx.decodes}
+              wsjtxClients={wsjtx.clients}
+              wsjtxQsos={wsjtx.qsos}
+              wsjtxStats={wsjtx.stats}
+              wsjtxLoading={wsjtx.loading}
+              wsjtxEnabled={wsjtx.enabled}
+              wsjtxPort={wsjtx.port}
+              showWSJTXOnMap={mapLayers.showWSJTX}
+              onToggleWSJTXMap={toggleWSJTX}
             />
           </div>
           
