@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 /**
- * Gray Line Propagation Overlay Plugin v1.0.0
+ * Gray Line Propagation Overlay Plugin v1.0.1
  * 
  * Features:
  * - Real-time solar terminator (day/night boundary)
@@ -10,6 +10,7 @@ import { useState, useEffect, useRef } from 'react';
  * - Enhanced propagation zone highlighting
  * - Color-coded by propagation potential
  * - Minimizable control panel
+ * - Corrected sine wave calculation (v1.0.1)
  * 
  * Use Case: Identify optimal times for long-distance DX contacts
  * The gray line provides enhanced HF propagation for several hours
@@ -23,7 +24,7 @@ export const metadata = {
   category: 'propagation',
   defaultEnabled: false,
   defaultOpacity: 0.5,
-  version: '1.0.0'
+  version: '1.0.1'
 };
 
 // Solar calculations based on astronomical algorithms
