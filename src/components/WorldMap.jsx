@@ -778,11 +778,6 @@ export const WorldMap = ({
             <span style={{ background: '#aa66ff', color: '#fff', padding: '2px 5px', borderRadius: '3px', fontWeight: '600' }}>● POTA</span>
           </div>
         )}
-        {showSatellites && (
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-            <span style={{ background: '#00ffff', color: '#000', padding: '2px 5px', borderRadius: '3px', fontWeight: '600' }}>🛰 SAT</span>
-          </div>
-        )}
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
           <span style={{ color: '#ffcc00' }}>☀ Sun</span>
           <span style={{ color: '#aaaaaa' }}>🌙 Moon</span>
