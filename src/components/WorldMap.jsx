@@ -648,7 +648,7 @@ export const WorldMap = ({
 
   return (
     <div style={{ position: 'relative', height: '100%', minHeight: '200px' }}>
-      <div ref={mapRef} style={{ height: '100%', width: '100%', borderRadius: '8px' }} />
+      <div ref={mapRef} style={{ height: '100%', width: '100%', borderRadius: '8px', background: mapStyle === 'countries' ? '#4a90d9' : undefined }} />
       
       {/* Render all plugin layers */}
       {mapInstanceRef.current && getAllLayers().map(layerDef => (

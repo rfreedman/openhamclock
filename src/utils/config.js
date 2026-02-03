@@ -200,7 +200,7 @@ export const MAP_STYLES = {
   },
   countries: {
     name: 'Countries',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
     attribution: '&copy; Esri, Natural Earth',
     countriesOverlay: true
   }
