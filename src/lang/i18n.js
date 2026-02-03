@@ -9,12 +9,14 @@ import translationDE from './de.json';
 import translationPT from './pt.json';
 import translationJA from './ja.json';
 import translationIT from './it.json';
+import translationNL from './nl.json';
 
 export const LANGUAGES = [
   { code: 'en', name: 'English', flag: '🇬🇧' },
   { code: 'fr', name: 'Français', flag: '🇫🇷' },
   { code: 'es', name: 'Español', flag: '🇪🇸' },
   { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
+  { code: 'nl', name: 'Nederlands', flag: '🇳🇱' },
   { code: 'pt', name: 'Português', flag: '🇧🇷' },
   { code: 'ja', name: '日本語', flag: '🇯🇵' },
   { code: 'it', name: 'Italiano', flag: '🇮🇹' }
@@ -25,6 +27,7 @@ export const resources = {
   fr: { translation: translationFR },
   es: { translation: translationES },
   de: { translation: translationDE },
+  nl: { translation: translationNL },
   pt: { translation: translationPT },
   ja: { translation: translationJA },
   it: { translation: translationIT }
