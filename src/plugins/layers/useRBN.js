@@ -344,7 +344,7 @@ export function useLayer({ enabled = false, opacity = 0.7, map = null, callsign 
       const band = freqToBand(spot.frequency || spot.freq || 0);
       const snr = spot.snr || spot.db || 0;
       
-      if (selectedBand !== 'All' && band !== selectedBand) return false;
+      if (selectedBand !== 'all' && selectedBand !== 'All' && band !== selectedBand) return false;
       if (snr < minSNR) return false;
       
       return true;
@@ -458,7 +458,7 @@ export function useLayer({ enabled = false, opacity = 0.7, map = null, callsign 
         <div style="margin-bottom: 6px;">
           <label>Band:</label>
           <select id="rbn-band-select" style="width: 100%; background: #333; color: #fff; border: 1px solid #555; padding: 4px;">
-            <option value="All">All Bands</option>
+            <option value="all">All Bands</option>
             <option value="160m">160m</option>
             <option value="80m">80m</option>
             <option value="40m">40m</option>
