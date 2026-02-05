@@ -9,6 +9,7 @@ import * as WSPRPlugin from './layers/useWSPR.js';
 import * as GrayLinePlugin from './layers/useGrayLine.js';
 import * as LightningPlugin from './layers/useLightning.js';
 import * as ContestQsosPlugin from './layers/useContestQsos.js';
+import * as RBNPlugin from './layers/useRBN.js';
 
 const layerPlugins = [
   WXRadarPlugin,
@@ -18,6 +19,7 @@ const layerPlugins = [
   GrayLinePlugin,
   LightningPlugin,
   ContestQsosPlugin,
+  RBNPlugin,
 ];
 
 export function getAllLayers() {
