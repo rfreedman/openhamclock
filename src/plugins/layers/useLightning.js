@@ -836,8 +836,6 @@ export function useLayer({ enabled = false, opacity = 0.9, map = null }) {
     console.log('[Lightning] Proximity: ProximityControl instance created');
     map.addControl(control);
     console.log('[Lightning] Proximity: Control added to map');
-    setProximityControl(control);
-    console.log('[Lightning] Proximity: State updated with control');
 
     // Make draggable and add minimize toggle - retry until found
     let retries = 0;
@@ -867,9 +865,15 @@ export function useLayer({ enabled = false, opacity = 0.9, map = null }) {
         makeDraggable(container, 'lightning-proximity-position');
         addMinimizeToggle(container, 'lightning-proximity-position');
         console.log('[Lightning] Proximity: Panel is now draggable and minimizable');
+        
+        // IMPORTANT: Set state AFTER setup is complete to prevent re-render during creation
+        setProximityControl(control);
+        console.log('[Lightning] Proximity: State updated with control');
       } else if (retries >= maxRetries) {
         clearInterval(retryInterval);
         console.error('[Lightning] Proximity: Container NOT FOUND after 20 retries!');
+        // Still set state even if container not found to prevent infinite recreation
+        setProximityControl(control);
       }
     }, 100);
 
