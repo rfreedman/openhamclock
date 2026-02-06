@@ -1824,167 +1824,543 @@ function estimateLocationFromPrefix(callsign) {
   
   // Comprehensive prefix to grid mapping
   // Uses typical/central grid for each prefix area
+  // Comprehensive prefix to grid mapping
+  // Based on ITU allocations and DXCC entity list (~340 entities)
+  // Grid squares are approximate center of each entity
   const prefixGrids = {
+    // ============================================
     // USA - by call district
-    'W1': 'FN41', 'K1': 'FN41', 'N1': 'FN41', 'AA1': 'FN41', // New England
-    'W2': 'FN20', 'K2': 'FN20', 'N2': 'FN20', 'AA2': 'FN20', // NY/NJ
-    'W3': 'FM19', 'K3': 'FM19', 'N3': 'FM19', 'AA3': 'FM19', // PA/MD/DE
-    'W4': 'EM73', 'K4': 'EM73', 'N4': 'EM73', 'AA4': 'EM73', // SE USA
-    'W5': 'EM12', 'K5': 'EM12', 'N5': 'EM12', 'AA5': 'EM12', // TX/OK/LA/AR/MS
-    'W6': 'CM97', 'K6': 'CM97', 'N6': 'CM97', 'AA6': 'CM97', // California
-    'W7': 'DN31', 'K7': 'DN31', 'N7': 'DN31', 'AA7': 'DN31', // Pacific NW/Mountain
-    'W8': 'EN81', 'K8': 'EN81', 'N8': 'EN81', 'AA8': 'EN81', // MI/OH/WV
-    'W9': 'EN52', 'K9': 'EN52', 'N9': 'EN52', 'AA9': 'EN52', // IL/IN/WI
-    'W0': 'EN31', 'K0': 'EN31', 'N0': 'EN31', 'AA0': 'EN31', // Central USA
-    // Generic USA (no district) - AA through AL are all US prefixes
-    'W': 'EM79', 'K': 'EM79', 'N': 'EM79', 
-    'AA': 'EM79', 'AB': 'EM79', 'AC': 'EM79', 'AD': 'EM79', 'AE': 'EM79', 'AF': 'EM79',
-    'AG': 'EM79', 'AH': 'EM79', 'AI': 'EM79', 'AJ': 'EM79', 'AK': 'EM79', 'AL': 'EM79',
-    // US A-prefixes by call district
-    'AE0': 'EN31', 'AE1': 'FN41', 'AE2': 'FN20', 'AE3': 'FM19', 'AE4': 'EM73', 
-    'AE5': 'EM12', 'AE6': 'CM97', 'AE7': 'DN31', 'AE8': 'EN81', 'AE9': 'EN52',
-    'AC0': 'EN31', 'AC1': 'FN41', 'AC2': 'FN20', 'AC3': 'FM19', 'AC4': 'EM73',
-    'AC5': 'EM12', 'AC6': 'CM97', 'AC7': 'DN31', 'AC8': 'EN81', 'AC9': 'EN52',
-    'AD0': 'EN31', 'AD1': 'FN41', 'AD2': 'FN20', 'AD3': 'FM19', 'AD4': 'EM73',
-    'AD5': 'EM12', 'AD6': 'CM97', 'AD7': 'DN31', 'AD8': 'EN81', 'AD9': 'EN52',
-    'AF0': 'EN31', 'AF1': 'FN41', 'AF2': 'FN20', 'AF3': 'FM19', 'AF4': 'EM73',
-    'AF5': 'EM12', 'AF6': 'CM97', 'AF7': 'DN31', 'AF8': 'EN81', 'AF9': 'EN52',
-    'AG0': 'EN31', 'AG1': 'FN41', 'AG2': 'FN20', 'AG3': 'FM19', 'AG4': 'EM73',
-    'AG5': 'EM12', 'AG6': 'CM97', 'AG7': 'DN31', 'AG8': 'EN81', 'AG9': 'EN52',
-    'AI0': 'EN31', 'AI1': 'FN41', 'AI2': 'FN20', 'AI3': 'FM19', 'AI4': 'EM73',
-    'AI5': 'EM12', 'AI6': 'CM97', 'AI7': 'DN31', 'AI8': 'EN81', 'AI9': 'EN52',
-    'AJ0': 'EN31', 'AJ1': 'FN41', 'AJ2': 'FN20', 'AJ3': 'FM19', 'AJ4': 'EM73',
-    'AJ5': 'EM12', 'AJ6': 'CM97', 'AJ7': 'DN31', 'AJ8': 'EN81', 'AJ9': 'EN52',
-    'AK0': 'EN31', 'AK1': 'FN41', 'AK2': 'FN20', 'AK3': 'FM19', 'AK4': 'EM73',
-    'AK5': 'EM12', 'AK6': 'CM97', 'AK7': 'DN31', 'AK8': 'EN81', 'AK9': 'EN52',
-    'AL0': 'EN31', 'AL1': 'FN41', 'AL2': 'FN20', 'AL3': 'FM19', 'AL4': 'EM73',
-    'AL5': 'EM12', 'AL6': 'CM97', 'AL7': 'BP51', 'AL8': 'EN81', 'AL9': 'EN52', // AL7 = Alaska
+    // ============================================
+    'W1': 'FN41', 'K1': 'FN41', 'N1': 'FN41', 'AA1': 'FN41',
+    'W2': 'FN20', 'K2': 'FN20', 'N2': 'FN20', 'AA2': 'FN20',
+    'W3': 'FM19', 'K3': 'FM19', 'N3': 'FM19', 'AA3': 'FM19',
+    'W4': 'EM73', 'K4': 'EM73', 'N4': 'EM73', 'AA4': 'EM73',
+    'W5': 'EM12', 'K5': 'EM12', 'N5': 'EM12', 'AA5': 'EM12',
+    'W6': 'CM97', 'K6': 'CM97', 'N6': 'CM97', 'AA6': 'CM97',
+    'W7': 'DN31', 'K7': 'DN31', 'N7': 'DN31', 'AA7': 'DN31',
+    'W8': 'EN81', 'K8': 'EN81', 'N8': 'EN81', 'AA8': 'EN81',
+    'W9': 'EN52', 'K9': 'EN52', 'N9': 'EN52', 'AA9': 'EN52',
+    'W0': 'EN31', 'K0': 'EN31', 'N0': 'EN31', 'AA0': 'EN31',
+    'W': 'EM79', 'K': 'EM79', 'N': 'EM79',
     
-    // Canada - by province
-    'VE1': 'FN74', 'VA1': 'FN74', // Maritime
-    'VE2': 'FN35', 'VA2': 'FN35', // Quebec
-    'VE3': 'FN03', 'VA3': 'FN03', // Ontario
-    'VE4': 'EN19', 'VA4': 'EN19', // Manitoba
-    'VE5': 'DO51', 'VA5': 'DO51', // Saskatchewan
-    'VE6': 'DO33', 'VA6': 'DO33', // Alberta
-    'VE7': 'CN89', 'VA7': 'CN89', // British Columbia
-    'VE8': 'DP31', 'VA8': 'DP31', // NWT
-    'VE9': 'FN65', 'VA9': 'FN65', // New Brunswick
-    'VY1': 'CP28', // Yukon
-    'VY2': 'FN86', // PEI
-    'VO1': 'GN37', 'VO2': 'GO17', // Newfoundland/Labrador
-    'VE': 'FN03', 'VA': 'FN03', // Generic Canada
-    
-    // UK & Ireland
-    'G': 'IO91', 'M': 'IO91', '2E': 'IO91', 'GW': 'IO81', // England/Wales
-    'GM': 'IO85', 'MM': 'IO85', '2M': 'IO85', // Scotland
-    'GI': 'IO64', 'MI': 'IO64', '2I': 'IO64', // N. Ireland
-    'EI': 'IO63', 'EJ': 'IO63', // Ireland
-    
-    // Germany
-    'DL': 'JO51', 'DJ': 'JO51', 'DK': 'JO51', 'DA': 'JO51', 'DB': 'JO51', 'DC': 'JO51', 'DD': 'JO51', 'DF': 'JO51', 'DG': 'JO51', 'DH': 'JO51', 'DO': 'JO51',
-    
-    // Rest of Europe
-    'F': 'JN18', // France
-    'I': 'JN61', 'IK': 'JN45', 'IZ': 'JN61', // Italy
-    'EA': 'IN80', 'EC': 'IN80', 'EB': 'IN80', // Spain
-    'CT': 'IM58', // Portugal
-    'PA': 'JO21', 'PD': 'JO21', 'PE': 'JO21', 'PH': 'JO21', // Netherlands
-    'ON': 'JO20', 'OO': 'JO20', 'OR': 'JO20', 'OT': 'JO20', // Belgium
-    'HB': 'JN47', 'HB9': 'JN47', // Switzerland
-    'OE': 'JN78', // Austria
-    'OZ': 'JO55', 'OU': 'JO55', // Denmark
-    'SM': 'JO89', 'SA': 'JO89', 'SB': 'JO89', 'SE': 'JO89', // Sweden
-    'LA': 'JO59', 'LB': 'JO59', // Norway
-    'OH': 'KP20', 'OF': 'KP20', 'OG': 'KP20', 'OI': 'KP20', // Finland
-    'SP': 'JO91', 'SQ': 'JO91', 'SO': 'JO91', '3Z': 'JO91', // Poland
-    'OK': 'JN79', 'OL': 'JN79', // Czech Republic
-    'OM': 'JN88', // Slovakia
-    'HA': 'JN97', 'HG': 'JN97', // Hungary
-    'YO': 'KN34', // Romania
-    'LZ': 'KN22', // Bulgaria
-    'YU': 'KN04', // Serbia
-    '9A': 'JN75', // Croatia
-    'S5': 'JN76', // Slovenia
-    'SV': 'KM17', 'SX': 'KM17', // Greece
-    '9H': 'JM75', // Malta
-    'LY': 'KO24', // Lithuania
-    'ES': 'KO29', // Estonia
-    'YL': 'KO26', // Latvia
-    
-    // Russia & Ukraine
-    'UA': 'KO85', 'RA': 'KO85', 'RU': 'KO85', 'RV': 'KO85', 'RW': 'KO85', 'RX': 'KO85', 'RZ': 'KO85',
-    'UA0': 'OO33', 'RA0': 'OO33', 'R0': 'OO33', // Asiatic Russia
-    'UA9': 'MO06', 'RA9': 'MO06', 'R9': 'MO06', // Ural
-    'UR': 'KO50', 'UT': 'KO50', 'UX': 'KO50', 'US': 'KO50', // Ukraine
-    
-    // Japan - by call area
-    'JA1': 'PM95', 'JH1': 'PM95', 'JR1': 'PM95', 'JE1': 'PM95', 'JF1': 'PM95', 'JG1': 'PM95', 'JI1': 'PM95', 'JJ1': 'PM95', 'JK1': 'PM95', 'JL1': 'PM95', 'JM1': 'PM95', 'JN1': 'PM95', 'JO1': 'PM95', 'JP1': 'PM95', 'JQ1': 'PM95', 'JS1': 'PM95', '7K1': 'PM95', '7L1': 'PM95', '7M1': 'PM95', '7N1': 'PM95',
-    'JA2': 'PM84', 'JA3': 'PM74', 'JA4': 'PM64', 'JA5': 'PM63', 'JA6': 'PM53', 'JA7': 'QM07', 'JA8': 'QN02', 'JA9': 'PM86', 'JA0': 'PM97',
-    'JA': 'PM95', 'JH': 'PM95', 'JR': 'PM95', 'JE': 'PM95', 'JF': 'PM95', 'JG': 'PM95', // Generic Japan
-    
-    // Rest of Asia
-    'HL': 'PM37', 'DS': 'PM37', '6K': 'PM37', '6L': 'PM37', // South Korea
-    'BV': 'PL04', 'BW': 'PL04', 'BX': 'PL04', // Taiwan
-    'BY': 'OM92', 'BT': 'OM92', 'BA': 'OM92', 'BD': 'OM92', 'BG': 'OM92', // China
-    'VU': 'MK82', 'VU2': 'MK82', 'VU3': 'MK82', // India
-    'HS': 'OK03', 'E2': 'OK03', // Thailand
-    '9V': 'OJ11', // Singapore
-    '9M': 'OJ05', '9W': 'OJ05', // Malaysia
-    'DU': 'PK04', 'DV': 'PK04', 'DW': 'PK04', 'DX': 'PK04', 'DY': 'PK04', 'DZ': 'PK04', '4D': 'PK04', '4E': 'PK04', '4F': 'PK04', '4G': 'PK04', '4H': 'PK04', '4I': 'PK04', // Philippines
-    'YB': 'OI33', 'YC': 'OI33', 'YD': 'OI33', 'YE': 'OI33', 'YF': 'OI33', 'YG': 'OI33', 'YH': 'OI33', // Indonesia
-    
-    // Oceania
-    'VK': 'QF56', 'VK1': 'QF44', 'VK2': 'QF56', 'VK3': 'QF22', 'VK4': 'QG62', 'VK5': 'PF95', 'VK6': 'OF86', 'VK7': 'QE38', // Australia
-    'ZL': 'RF70', 'ZL1': 'RF72', 'ZL2': 'RF70', 'ZL3': 'RE66', 'ZL4': 'RE54', // New Zealand
-    'KH6': 'BL01', // Hawaii
-    'KH2': 'QK24', // Guam
-    'FK': 'RG37', // New Caledonia
-    
-    // South America
-    'LU': 'GF05', 'LW': 'GF05', 'LO': 'GF05', 'L2': 'GF05', 'L3': 'GF05', 'L4': 'GF05', 'L5': 'GF05', 'L6': 'GF05', 'L7': 'GF05', 'L8': 'GF05', 'L9': 'GF05', // Argentina
-    'PY': 'GG87', 'PP': 'GG87', 'PQ': 'GG87', 'PR': 'GG87', 'PS': 'GG87', 'PT': 'GG87', 'PU': 'GG87', 'PV': 'GG87', 'PW': 'GG87', 'PX': 'GG87', // Brazil
-    'CE': 'FF46', 'CA': 'FF46', 'CB': 'FF46', 'CC': 'FF46', 'CD': 'FF46', 'XQ': 'FF46', 'XR': 'FF46', '3G': 'FF46', // Chile
-    'CX': 'GF15', // Uruguay
-    'HC': 'FI09', 'HD': 'FI09', // Ecuador
-    'OA': 'FH17', 'OB': 'FH17', 'OC': 'FH17', // Peru
-    'HK': 'FJ35', 'HJ': 'FJ35', '5J': 'FJ35', '5K': 'FJ35', // Colombia
-    'YV': 'FK60', 'YW': 'FK60', 'YX': 'FK60', 'YY': 'FK60', // Venezuela
-    
+    // ============================================
+    // US Territories
+    // ============================================
+    'KP4': 'FK68', 'NP4': 'FK68', 'WP4': 'FK68', 'KP3': 'FK68', 'NP3': 'FK68', 'WP3': 'FK68',
+    'KP2': 'FK77', 'NP2': 'FK77', 'WP2': 'FK77',
+    'KP1': 'FK28', 'NP1': 'FK28', 'WP1': 'FK28',
+    'KP5': 'FK68',
+    'KH0': 'QK25', 'NH0': 'QK25', 'WH0': 'QK25',
+    'KH1': 'BL01',
+    'KH2': 'QK24', 'NH2': 'QK24', 'WH2': 'QK24',
+    'KH3': 'BK29',
+    'KH4': 'AL07',
+    'KH5': 'BK29', 'KH5K': 'BL01',
+    'KH6': 'BL10', 'NH6': 'BL10', 'WH6': 'BL10', 'KH7': 'BL10', 'NH7': 'BL10', 'WH7': 'BL10',
+    'KH8': 'AH38', 'NH8': 'AH38', 'WH8': 'AH38',
+    'KH9': 'AK19',
+    'KL7': 'BP51', 'NL7': 'BP51', 'WL7': 'BP51', 'AL7': 'BP51',
+    'KG4': 'FK29',
+
+    // ============================================
+    // Canada
+    // ============================================
+    'VE1': 'FN74', 'VA1': 'FN74',
+    'VE2': 'FN35', 'VA2': 'FN35',
+    'VE3': 'FN03', 'VA3': 'FN03',
+    'VE4': 'EN19', 'VA4': 'EN19',
+    'VE5': 'DO51', 'VA5': 'DO51',
+    'VE6': 'DO33', 'VA6': 'DO33',
+    'VE7': 'CN89', 'VA7': 'CN89',
+    'VE8': 'DP31',
+    'VE9': 'FN65', 'VA9': 'FN65',
+    'VO1': 'GN37',
+    'VO2': 'GO17',
+    'VY0': 'EQ79',
+    'VY1': 'CP28',
+    'VY2': 'FN86',
+    'CY0': 'GN76',
+    'CY9': 'FN97',
+    'VE': 'FN03', 'VA': 'FN03',
+
+    // ============================================
+    // Mexico & Central America
+    // ============================================
+    'XE': 'EK09', 'XE1': 'EK09', 'XE2': 'DL84', 'XE3': 'EK57',
+    'XA': 'EK09', 'XB': 'EK09', 'XC': 'EK09', 'XD': 'EK09',
+    'XF': 'DK48', '4A': 'EK09', '4B': 'EK09', '4C': 'EK09',
+    '6D': 'EK09', '6E': 'EK09', '6F': 'EK09', '6G': 'EK09', '6H': 'EK09', '6I': 'EK09', '6J': 'EK09',
+    'TI': 'EJ79', 'TE': 'EJ79',
+    'TG': 'EK44', 'TD': 'EK44',
+    'HR': 'EK55', 'HQ': 'EK55',
+    'YN': 'EK62', 'HT': 'EK62', 'H6': 'EK62', 'H7': 'EK62',
+    'HP': 'FJ08', 'HO': 'FJ08', 'H3': 'FJ08', 'H8': 'FJ08', 'H9': 'FJ08', '3E': 'FJ08', '3F': 'FJ08',
+    'YS': 'EK53', 'HU': 'EK53',
+    'V3': 'EK56',
+
+    // ============================================
     // Caribbean
-    'KP4': 'FK68', 'NP4': 'FK68', 'WP4': 'FK68', // Puerto Rico
-    'VP5': 'FL31', // Turks & Caicos
-    'HI': 'FK49', // Dominican Republic
-    'CO': 'FL10', 'CM': 'FL10', // Cuba
-    'FG': 'FK96', // Guadeloupe
-    'FM': 'FK94', // Martinique
-    'PJ': 'FK52', // Netherlands Antilles
-    
-    // Africa
-    'ZS': 'KG33', 'ZR': 'KG33', 'ZT': 'KG33', 'ZU': 'KG33', // South Africa
-    '5N': 'JJ55', // Nigeria
-    'CN': 'IM63', // Morocco
-    '7X': 'JM16', // Algeria
-    'SU': 'KL30', // Egypt
-    '5Z': 'KI88', // Kenya
-    'ET': 'KJ49', // Ethiopia
-    'EA8': 'IL18', 'EA9': 'IM75', // Canary Islands, Ceuta
-    
-    // Middle East
-    'A4': 'LL93', 'A41': 'LL93', 'A45': 'LL93', // Oman
-    'A6': 'LL65', 'A61': 'LL65', // UAE
-    'A7': 'LL45', 'A71': 'LL45', // Qatar
-    'HZ': 'LL24', // Saudi Arabia
-    '4X': 'KM72', '4Z': 'KM72', // Israel
-    'OD': 'KM73', // Lebanon
-    
-    // Other
-    'VP8': 'GD18', // Falkland Islands
-    'CE9': 'FC56', 'DP0': 'IB59', 'KC4': 'FC56', // Antarctica
-    'SV5': 'KM46', 'SV9': 'KM25', // Dodecanese, Crete
+    // ============================================
+    'HI': 'FK49',
+    'CO': 'FL10', 'CM': 'FL10', 'CL': 'FL10', 'T4': 'FL10',
+    '6Y': 'FK17',
+    'VP5': 'FL31',
+    'C6': 'FL06',
+    'ZF': 'EK99',
+    'V2': 'FK97',
+    'J3': 'FK92',
+    'J6': 'FK93',
+    'J7': 'FK95',
+    'J8': 'FK93',
+    '8P': 'GK03',
+    '9Y': 'FK90',
+    'PJ2': 'FK52', 'PJ4': 'FK52',
+    'PJ5': 'FK87', 'PJ6': 'FK87', 'PJ7': 'FK88',
+    'P4': 'FK52',
+    'VP2E': 'FK88',
+    'VP2M': 'FK96',
+    'VP2V': 'FK77',
+    'V4': 'FK87',
+    'FG': 'FK96',
+    'FM': 'FK94', 'TO': 'FK94',
+    'FS': 'FK88',
+    'FJ': 'GK08',
+    'HH': 'FK38',
+
+    // ============================================
+    // South America
+    // ============================================
+    'LU': 'GF05', 'LW': 'GF05', 'LO': 'GF05', 'LR': 'GF05', 'LT': 'GF05', 'AY': 'GF05', 'AZ': 'GF05',
+    'L1': 'GF05', 'L2': 'GF05', 'L3': 'GF05', 'L4': 'GF05', 'L5': 'GF05', 'L6': 'GF05', 'L7': 'GF05', 'L8': 'GF05', 'L9': 'GF05',
+    'PY': 'GG87', 'PP': 'GG87', 'PQ': 'GG87', 'PR': 'GG87', 'PS': 'GG87', 'PT': 'GG87', 'PU': 'GG87', 'PV': 'GG87', 'PW': 'GG87', 'PX': 'GG87',
+    'ZV': 'GG87', 'ZW': 'GG87', 'ZX': 'GG87', 'ZY': 'GG87', 'ZZ': 'GG87',
+    'CE': 'FF46', 'CA': 'FF46', 'CB': 'FF46', 'CC': 'FF46', 'CD': 'FF46', 'XQ': 'FF46', 'XR': 'FF46', '3G': 'FF46',
+    'CE0Y': 'DG52',
+    'CE0Z': 'FE49',
+    'CE0X': 'FG14',
+    'CX': 'GF15', 'CV': 'GF15',
+    'HC': 'FI09', 'HD': 'FI09',
+    'HC8': 'EI49',
+    'OA': 'FH17', 'OB': 'FH17', 'OC': 'FH17', '4T': 'FH17',
+    'HK': 'FJ35', 'HJ': 'FJ35', '5J': 'FJ35', '5K': 'FJ35',
+    'HK0': 'FJ55', 'HK0M': 'EJ96',
+    'YV': 'FK60', 'YW': 'FK60', 'YX': 'FK60', 'YY': 'FK60', '4M': 'FK60',
+    'YV0': 'FK53',
+    'CP': 'FH64',
+    '8R': 'GJ24',
+    'PZ': 'GJ25',
+    'FY': 'GJ34',
+    'VP8': 'GD18', 'VP8F': 'GD18',
+    'VP8G': 'IC16',
+    'VP8H': 'GC17',
+    'VP8O': 'GC06',
+    'VP8S': 'GC06',
+
+    // ============================================
+    // Europe - UK & Ireland
+    // ============================================
+    'G': 'IO91', 'M': 'IO91', '2E': 'IO91',
+    'GW': 'IO81', 'MW': 'IO81', '2W': 'IO81',
+    'GM': 'IO85', 'MM': 'IO85', '2M': 'IO85',
+    'GI': 'IO64', 'MI': 'IO64', '2I': 'IO64',
+    'GD': 'IO74', 'MD': 'IO74', '2D': 'IO74',
+    'GJ': 'IN89', 'MJ': 'IN89', '2J': 'IN89',
+    'GU': 'IN89', 'MU': 'IN89', '2U': 'IN89',
+    'EI': 'IO63', 'EJ': 'IO63',
+
+    // ============================================
+    // Europe - Germany
+    // ============================================
+    'DL': 'JO51', 'DJ': 'JO51', 'DK': 'JO51', 'DA': 'JO51', 'DB': 'JO51', 'DC': 'JO51', 'DD': 'JO51',
+    'DF': 'JO51', 'DG': 'JO51', 'DH': 'JO51', 'DM': 'JO51', 'DO': 'JO51', 'DP': 'JO51', 'DQ': 'JO51', 'DR': 'JO51',
+
+    // ============================================
+    // Europe - France & territories
+    // ============================================
+    'F': 'JN18', 'TM': 'JN18',
+
+    // ============================================
+    // Europe - Italy
+    // ============================================
+    'I': 'JN61', 'IK': 'JN45', 'IZ': 'JN61', 'IW': 'JN61', 'IU': 'JN61',
+
+    // ============================================
+    // Europe - Spain & Portugal
+    // ============================================
+    'EA': 'IN80', 'EC': 'IN80', 'EB': 'IN80', 'ED': 'IN80', 'EE': 'IN80', 'EF': 'IN80', 'EG': 'IN80', 'EH': 'IN80',
+    'EA6': 'JM19', 'EC6': 'JM19',
+    'EA8': 'IL18', 'EC8': 'IL18',
+    'EA9': 'IM75', 'EC9': 'IM75',
+    'CT': 'IM58', 'CQ': 'IM58', 'CS': 'IM58',
+    'CT3': 'IM12', 'CQ3': 'IM12',
+    'CU': 'HM68',
+
+    // ============================================
+    // Europe - Benelux
+    // ============================================
+    'PA': 'JO21', 'PD': 'JO21', 'PE': 'JO21', 'PF': 'JO21', 'PG': 'JO21', 'PH': 'JO21', 'PI': 'JO21',
+    'ON': 'JO20', 'OO': 'JO20', 'OP': 'JO20', 'OQ': 'JO20', 'OR': 'JO20', 'OS': 'JO20', 'OT': 'JO20',
+    'LX': 'JN39',
+
+    // ============================================
+    // Europe - Alpine
+    // ============================================
+    'HB': 'JN47', 'HB9': 'JN47', 'HE': 'JN47',
+    'HB0': 'JN47',
+    'OE': 'JN78',
+
+    // ============================================
+    // Europe - Scandinavia
+    // ============================================
+    'OZ': 'JO55', 'OU': 'JO55', 'OV': 'JO55', '5P': 'JO55', '5Q': 'JO55',
+    'OX': 'GP47', 'XP': 'GP47',
+    'SM': 'JO89', 'SA': 'JO89', 'SB': 'JO89', 'SC': 'JO89', 'SD': 'JO89', 'SE': 'JO89', 'SF': 'JO89', 'SG': 'JO89', 'SH': 'JO89', 'SI': 'JO89', 'SJ': 'JO89', 'SK': 'JO89', 'SL': 'JO89', '7S': 'JO89', '8S': 'JO89',
+    'LA': 'JO59', 'LB': 'JO59', 'LC': 'JO59', 'LD': 'JO59', 'LE': 'JO59', 'LF': 'JO59', 'LG': 'JO59', 'LH': 'JO59', 'LI': 'JO59', 'LJ': 'JO59', 'LK': 'JO59', 'LL': 'JO59', 'LM': 'JO59', 'LN': 'JO59',
+    'JW': 'JQ68',
+    'JX': 'IQ50',
+    'OH': 'KP20', 'OF': 'KP20', 'OG': 'KP20', 'OI': 'KP20',
+    'OH0': 'JP90',
+    'OJ0': 'KP03',
+    'TF': 'HP94',
+
+    // ============================================
+    // Europe - Eastern
+    // ============================================
+    'SP': 'JO91', 'SQ': 'JO91', 'SO': 'JO91', 'SN': 'JO91', '3Z': 'JO91', 'HF': 'JO91',
+    'OK': 'JN79', 'OL': 'JN79',
+    'OM': 'JN88',
+    'HA': 'JN97', 'HG': 'JN97',
+    'YO': 'KN34', 'YP': 'KN34', 'YQ': 'KN34', 'YR': 'KN34',
+    'LZ': 'KN22',
+    'SV': 'KM17', 'SX': 'KM17', 'SY': 'KM17', 'SZ': 'KM17', 'J4': 'KM17',
+    'SV5': 'KM46',
+    'SV9': 'KM25',
+    'SV/A': 'KN10',
+    '9H': 'JM75',
+    'YU': 'KN04', 'YT': 'KN04', 'YZ': 'KN04',
+    '9A': 'JN75',
+    'S5': 'JN76',
+    'E7': 'JN84',
+    'Z3': 'KN01',
+    '4O': 'JN92',
+    'ZA': 'JN91',
+    'T7': 'JN63',
+    'HV': 'JN61',
+    '1A': 'JM64',
+
+    // ============================================
+    // Europe - Baltic
+    // ============================================
+    'LY': 'KO24',
+    'ES': 'KO29',
+    'YL': 'KO26',
+
+    // ============================================
+    // Russia & Ukraine & Belarus
+    // ============================================
+    'UA': 'KO85', 'RA': 'KO85', 'RU': 'KO85', 'RV': 'KO85', 'RW': 'KO85', 'RX': 'KO85', 'RZ': 'KO85',
+    'R1': 'KO85', 'R2': 'KO85', 'R3': 'KO85', 'R4': 'KO85', 'R5': 'KO85', 'R6': 'KO85',
+    'U1': 'KO85', 'U2': 'KO85', 'U3': 'KO85', 'U4': 'KO85', 'U5': 'KO85', 'U6': 'KO85',
+    'UA9': 'MO06', 'RA9': 'MO06', 'R9': 'MO06', 'U9': 'MO06',
+    'UA0': 'OO33', 'RA0': 'OO33', 'R0': 'OO33', 'U0': 'OO33',
+    'UA2': 'KO04', 'RA2': 'KO04', 'R2F': 'KO04',
+    'UR': 'KO50', 'UT': 'KO50', 'UX': 'KO50', 'US': 'KO50', 'UY': 'KO50', 'UW': 'KO50', 'UV': 'KO50', 'UU': 'KO50',
+    'EU': 'KO33', 'EV': 'KO33', 'EW': 'KO33',
+    'ER': 'KN47',
+    'C3': 'JN02',
+
+    // ============================================
+    // Asia - Japan
+    // ============================================
+    'JA': 'PM95', 'JH': 'PM95', 'JR': 'PM95', 'JE': 'PM95', 'JF': 'PM95', 'JG': 'PM95', 'JI': 'PM95', 'JJ': 'PM95', 'JK': 'PM95', 'JL': 'PM95', 'JM': 'PM95', 'JN': 'PM95', 'JO': 'PM95', 'JP': 'PM95', 'JQ': 'PM95', 'JS': 'PM95',
+    '7J': 'PM95', '7K': 'PM95', '7L': 'PM95', '7M': 'PM95', '7N': 'PM95', '8J': 'PM95', '8K': 'PM95', '8L': 'PM95', '8M': 'PM95', '8N': 'PM95',
+    'JA1': 'PM95', 'JA2': 'PM84', 'JA3': 'PM74', 'JA4': 'PM64', 'JA5': 'PM63', 'JA6': 'PM53', 'JA7': 'QM07', 'JA8': 'QN02', 'JA9': 'PM86', 'JA0': 'PM97',
+    'JD1': 'QL07',
+
+    // ============================================
+    // Asia - China & Taiwan & Hong Kong
+    // ============================================
+    'BY': 'OM92', 'BT': 'OM92', 'BA': 'OM92', 'BD': 'OM92', 'BG': 'OM92', 'BH': 'OM92', 'BI': 'OM92', 'BJ': 'OM92', 'BL': 'OM92', 'BM': 'OM92', 'BO': 'OM92', 'BP': 'OM92', 'BQ': 'OM92', 'BR': 'OM92', 'BS': 'OM92', 'BU': 'OM92',
+    'BV': 'PL04', 'BW': 'PL04', 'BX': 'PL04', 'BN': 'PL04',
+    'XX9': 'OL62', 'VR': 'OL62',
+
+    // ============================================
+    // Asia - Korea
+    // ============================================
+    'HL': 'PM37', 'DS': 'PM37', '6K': 'PM37', '6L': 'PM37', '6M': 'PM37', '6N': 'PM37', 'D7': 'PM37', 'D8': 'PM37', 'D9': 'PM37',
+    'P5': 'PM38',
+
+    // ============================================
+    // Asia - Southeast
+    // ============================================
+    'HS': 'OK03', 'E2': 'OK03',
+    'XV': 'OK30', '3W': 'OK30',
+    'XU': 'OK10',
+    'XW': 'NK97',
+    'XZ': 'NL99', '1Z': 'NL99',
+    '9V': 'OJ11',
+    '9M': 'OJ05', '9W': 'OJ05',
+    '9M6': 'OJ69', '9M8': 'OJ69', '9W6': 'OJ69', '9W8': 'OJ69',
+    'DU': 'PK04', 'DV': 'PK04', 'DW': 'PK04', 'DX': 'PK04', 'DY': 'PK04', 'DZ': 'PK04',
+    '4D': 'PK04', '4E': 'PK04', '4F': 'PK04', '4G': 'PK04', '4H': 'PK04', '4I': 'PK04',
+    'YB': 'OI33', 'YC': 'OI33', 'YD': 'OI33', 'YE': 'OI33', 'YF': 'OI33', 'YG': 'OI33', 'YH': 'OI33',
+    '7A': 'OI33', '7B': 'OI33', '7C': 'OI33', '7D': 'OI33', '7E': 'OI33', '7F': 'OI33', '7G': 'OI33', '7H': 'OI33', '7I': 'OI33',
+    '8A': 'OI33', '8B': 'OI33', '8C': 'OI33', '8D': 'OI33', '8E': 'OI33', '8F': 'OI33', '8G': 'OI33', '8H': 'OI33', '8I': 'OI33',
+    'V8': 'OJ84',
+
+    // ============================================
+    // Asia - South
+    // ============================================
+    'VU': 'MK82', 'VU2': 'MK82', 'VU3': 'MK82', 'VU4': 'MJ97', 'VU7': 'MJ58',
+    '8T': 'MK82', '8U': 'MK82', '8V': 'MK82', '8W': 'MK82', '8X': 'MK82', '8Y': 'MK82',
+    'AP': 'MM44',
+    '4S': 'MJ96',
+    'S2': 'NL93',
+    '9N': 'NL27',
+    'A5': 'NL49',
+    '8Q': 'MJ63',
+
+    // ============================================
+    // Asia - Middle East
+    // ============================================
+    'A4': 'LL93', 'A41': 'LL93', 'A43': 'LL93', 'A45': 'LL93', 'A47': 'LL93',
+    'A6': 'LL65', 'A61': 'LL65', 'A62': 'LL65', 'A63': 'LL65', 'A65': 'LL65',
+    'A7': 'LL45', 'A71': 'LL45', 'A72': 'LL45', 'A73': 'LL45', 'A75': 'LL45',
+    'A9': 'LL56', 'A91': 'LL56', 'A92': 'LL56',
+    '9K': 'LL47',
+    'HZ': 'LL24', '7Z': 'LL24', '8Z': 'LL24',
+    '4X': 'KM72', '4Z': 'KM72',
+    'OD': 'KM73',
+    'JY': 'KM71',
+    'YK': 'KM74',
+    'YI': 'LM30',
+    'EP': 'LL58', 'EQ': 'LL58',
+    'EK': 'LN20',
+    '4J': 'LN40', '4K': 'LN40',
+    '4L': 'LN21',
+    'TA': 'KN41', 'TB': 'KN41', 'TC': 'KN41', 'YM': 'KN41', 'TA1': 'KN41',
+    '5B': 'KM64', 'C4': 'KM64', 'H2': 'KM64', 'P3': 'KM64',
+    'ZC4': 'KM64',
+
+    // ============================================
+    // Asia - Central
+    // ============================================
+    'EX': 'MM78',
+    'EY': 'MM49',
+    'EZ': 'LN71',
+    'UK': 'MN41',
+    'UN': 'MN53', 'UP': 'MN53', 'UQ': 'MN53',
+    'YA': 'MM24', 'T6': 'MM24',
+
+    // ============================================
+    // Oceania - Australia
+    // ============================================
+    'VK': 'QF56', 'VK1': 'QF44', 'VK2': 'QF56', 'VK3': 'QF22', 'VK4': 'QG62', 'VK5': 'PF95', 'VK6': 'OF86', 'VK7': 'QE38', 'VK8': 'PH57', 'VK9': 'QF56',
+    'VK9C': 'OH29',
+    'VK9X': 'NH93',
+    'VK9L': 'QF92',
+    'VK9W': 'QG14',
+    'VK9M': 'QG11',
+    'VK9N': 'RF73',
+    'VK0H': 'MC55',
+    'VK0M': 'QE37',
+
+    // ============================================
+    // Oceania - New Zealand & Pacific
+    // ============================================
+    'ZL': 'RF70', 'ZL1': 'RF72', 'ZL2': 'RF70', 'ZL3': 'RE66', 'ZL4': 'RE54', 'ZM': 'RF70',
+    'ZL7': 'AE67',
+    'ZL8': 'AH36',
+    'ZL9': 'RE44',
+    'E5': 'BH83', 'E51': 'BH83',
+    'E52': 'AI38',
+    'ZK3': 'AH89',
+    'FK': 'RG37', 'TX': 'RG37',
+    'FK/C': 'RH29',
+    'FO': 'BH52',
+    'FO/A': 'CJ07',
+    'FO/C': 'CI06',
+    'FO/M': 'DI79',
+    'FW': 'AH44',
+    'A3': 'AG28', 'A35': 'AG28',
+    '5W': 'AH45',
+    'YJ': 'RH31', 'YJ0': 'RH31',
+    'H4': 'RI07', 'H44': 'RI07',
+    'P2': 'QI24',
+    'V6': 'QJ66',
+    'V7': 'RJ48',
+    'T8': 'PJ77',
+    'T2': 'RI87',
+    'T3': 'RI96',
+    'T31': 'AI58',
+    'T32': 'BI69',
+    'T33': 'AJ25',
+    'C2': 'QI32',
+    '3D2': 'RH91',
+    '3D2C': 'QH38',
+    '3D2R': 'RG26',
+    'ZK2': 'AI48',
+    'E6': 'AH28',
+
+    // ============================================
+    // Africa - North
+    // ============================================
+    'CN': 'IM63', '5C': 'IM63', '5D': 'IM63',
+    '7X': 'JM16',
+    '3V': 'JM54', 'TS': 'JM54',
+    '5A': 'JM73',
+    'SU': 'KL30', '6A': 'KL30',
+
+    // ============================================
+    // Africa - West
+    // ============================================
+    '5T': 'IL30',
+    '6W': 'IK14',
+    'C5': 'IK13',
+    'J5': 'IK52',
+    '3X': 'IJ75',
+    '9L': 'IJ38',
+    'EL': 'IJ56',
+    'TU': 'IJ95',
+    '9G': 'IJ95',
+    '5V': 'JJ07',
+    'TY': 'JJ16',
+    '5N': 'JJ55',
+    '5U': 'JK16',
+    'TZ': 'IK52',
+    'XT': 'JJ00',
+    'TJ': 'JJ55',
+    'D4': 'HK76',
+
+    // ============================================
+    // Africa - Central
+    // ============================================
+    'TT': 'JK73',
+    'TN': 'JI64',
+    '9Q': 'JI76',
+    'TL': 'JJ91',
+    'TR': 'JI41',
+    'S9': 'JJ40',
+    '3C': 'JJ41',
+    'D2': 'JH84',
+
+    // ============================================
+    // Africa - East
+    // ============================================
+    'ET': 'KJ49',
+    'E3': 'KJ76',
+    '6O': 'LJ07', 'T5': 'LJ07',
+    'J2': 'LK03',
+    '5Z': 'KI88',
+    '5X': 'KI42',
+    '5H': 'KI73',
+    '9X': 'KI45',
+    '9U': 'KI23',
+    'C9': 'KH53',
+    '7Q': 'KH54',
+    '9J': 'KH35',
+    'Z2': 'KH42',
+    '7P': 'KG30',
+    '3DA': 'KG53',
+    'A2': 'KG52',
+    'V5': 'JG87',
+
+    // ============================================
+    // Africa - South
+    // ============================================
+    'ZS': 'KG33', 'ZR': 'KG33', 'ZT': 'KG33', 'ZU': 'KG33',
+    'ZS8': 'KG42',
+    '3Y': 'JD45',
+
+    // ============================================
+    // Africa - Islands
+    // ============================================
+    'D6': 'LH47',
+    '5R': 'LH45',
+    '3B8': 'LG89',
+    '3B9': 'LH14',
+    '3B6': 'LH28',
+    'S7': 'LI73',
+    'FT5W': 'KG42',
+    'FT5X': 'MC55',
+    'FT5Z': 'ME47',
+    'FR': 'LG79',
+    'FH': 'LI15',
+    'VQ9': 'MJ66',
+
+    // ============================================
+    // Antarctica
+    // ============================================
+    'CE9': 'FC56', 'DP0': 'IB59', 'DP1': 'IB59', 'KC4': 'FC56',
+    '8J1': 'LC97', 'R1AN': 'KC29', 'ZL5': 'RB32',
+
+    // ============================================
+    // Other/Islands
+    // ============================================
+    'ZB': 'IM76',
+    'ZD7': 'IH74',
+    'ZD8': 'II22',
+    'ZD9': 'JE26',
+    '9M0': 'NJ07',
+    'BQ9': 'PJ29',
   };
   
   const upper = callsign.toUpperCase();
+  
+  // Check US territories FIRST (before generic US pattern)
+  // These start with K but are NOT mainland USA
+  const usTerritoryPrefixes = {
+    'KP1': 'FN42',  // Navassa Island
+    'KP2': 'FK77',  // US Virgin Islands
+    'KP3': 'FK68',  // Puerto Rico (same as KP4)
+    'KP4': 'FK68',  // Puerto Rico
+    'KP5': 'FK68',  // Desecheo Island
+    'NP2': 'FK77',  // US Virgin Islands
+    'NP3': 'FK68',  // Puerto Rico
+    'NP4': 'FK68',  // Puerto Rico
+    'WP2': 'FK77',  // US Virgin Islands
+    'WP3': 'FK68',  // Puerto Rico
+    'WP4': 'FK68',  // Puerto Rico
+    'KH0': 'QK25',  // Mariana Islands
+    'KH1': 'BL01',  // Baker/Howland
+    'KH2': 'QK24',  // Guam
+    'KH3': 'BL01',  // Johnston Island
+    'KH4': 'AL07',  // Midway
+    'KH5': 'BK29',  // Palmyra/Jarvis
+    'KH6': 'BL01',  // Hawaii
+    'KH7': 'BL01',  // Kure Island
+    'KH8': 'AH38',  // American Samoa
+    'KH9': 'AK19',  // Wake Island
+    'NH6': 'BL01',  // Hawaii
+    'NH7': 'BL01',  // Hawaii
+    'WH6': 'BL01',  // Hawaii
+    'WH7': 'BL01',  // Hawaii
+    'KL7': 'BP51',  // Alaska
+    'NL7': 'BP51',  // Alaska
+    'WL7': 'BP51',  // Alaska
+    'AL7': 'BP51',  // Alaska
+    'KG4': 'FK29',  // Guantanamo Bay
+  };
+  
+  // Check for US territory prefix (3 chars like KP4, KH6, KL7)
+  const territoryPrefix3 = upper.substring(0, 3);
+  if (usTerritoryPrefixes[territoryPrefix3]) {
+    const grid = usTerritoryPrefixes[territoryPrefix3];
+    const gridLoc = maidenheadToLatLon(grid);
+    if (gridLoc) {
+      return {
+        callsign,
+        lat: gridLoc.lat,
+        lon: gridLoc.lon,
+        grid: grid,
+        country: territoryPrefix3.startsWith('KP') || territoryPrefix3.startsWith('NP') || territoryPrefix3.startsWith('WP') ? 'Puerto Rico/USVI' :
+                 territoryPrefix3.startsWith('KH') || territoryPrefix3.startsWith('NH') || territoryPrefix3.startsWith('WH') ? 'Hawaii/Pacific' :
+                 territoryPrefix3.includes('L7') ? 'Alaska' : 'US Territory',
+        estimated: true,
+        source: 'prefix-grid'
+      };
+    }
+  }
   
   // Smart US callsign detection - US prefixes follow specific patterns
   // K, N, W + anything = USA
@@ -2075,6 +2451,10 @@ function estimateLocationFromPrefix(callsign) {
 function getCountryFromPrefix(prefix) {
   const prefixCountries = {
     'W': 'USA', 'K': 'USA', 'N': 'USA', 'AA': 'USA',
+    'KP4': 'Puerto Rico', 'NP4': 'Puerto Rico', 'WP4': 'Puerto Rico',
+    'KP2': 'US Virgin Is', 'NP2': 'US Virgin Is', 'WP2': 'US Virgin Is',
+    'KH6': 'Hawaii', 'NH6': 'Hawaii', 'WH6': 'Hawaii',
+    'KH2': 'Guam', 'KL7': 'Alaska', 'NL7': 'Alaska', 'WL7': 'Alaska',
     'VE': 'Canada', 'VA': 'Canada', 'VY': 'Canada', 'VO': 'Canada',
     'G': 'England', 'M': 'England', '2E': 'England', 'GM': 'Scotland', 'GW': 'Wales', 'GI': 'N. Ireland',
     'EI': 'Ireland', 'F': 'France', 'DL': 'Germany', 'I': 'Italy', 'EA': 'Spain', 'CT': 'Portugal',
@@ -2083,9 +2463,14 @@ function getCountryFromPrefix(prefix) {
     'SP': 'Poland', 'OK': 'Czech Rep', 'HA': 'Hungary', 'YO': 'Romania', 'LZ': 'Bulgaria',
     'UA': 'Russia', 'UR': 'Ukraine',
     'JA': 'Japan', 'HL': 'S. Korea', 'BV': 'Taiwan', 'BY': 'China', 'VU': 'India', 'HS': 'Thailand',
-    'VK': 'Australia', 'ZL': 'New Zealand', 'KH6': 'Hawaii',
-    'LU': 'Argentina', 'PY': 'Brazil', 'CE': 'Chile', 'HK': 'Colombia', 'YV': 'Venezuela',
-    'ZS': 'South Africa', 'CN': 'Morocco', 'SU': 'Egypt'
+    'VK': 'Australia', 'ZL': 'New Zealand',
+    'LU': 'Argentina', 'PY': 'Brazil', 'ZV': 'Brazil', 'ZW': 'Brazil', 'ZX': 'Brazil', 'ZY': 'Brazil', 'ZZ': 'Brazil',
+    'CE': 'Chile', 'HK': 'Colombia', 'YV': 'Venezuela', 'HC': 'Ecuador', 'OA': 'Peru', 'CX': 'Uruguay',
+    'ZS': 'South Africa', 'CN': 'Morocco', 'SU': 'Egypt', '5N': 'Nigeria', '5Z': 'Kenya', 'ET': 'Ethiopia',
+    'TY': 'Benin', 'TU': 'Ivory Coast', 'TR': 'Gabon', 'TZ': 'Mali', 'V5': 'Namibia', 'A2': 'Botswana',
+    'JY': 'Jordan', 'HZ': 'Saudi Arabia', 'A6': 'UAE', 'A7': 'Qatar', 'A9': 'Bahrain', 'A4': 'Oman',
+    '4X': 'Israel', 'OD': 'Lebanon', 'YK': 'Syria', 'YI': 'Iraq', 'EP': 'Iran', 'TA': 'Turkey',
+    '5B': 'Cyprus', 'EK': 'Armenia', '4J': 'Azerbaijan'
   };
   
   for (let len = 3; len >= 1; len--) {
