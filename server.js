@@ -942,7 +942,7 @@ app.get('/api/dxnews', async (req, res) => {
     }
 
     const response = await fetch('https://dxnews.com/', {
-      headers: { 'User-Agent': 'OpenHamClock/1.0 (amateur radio dashboard)' }
+      headers: { 'User-Agent': 'OpenHamClock/3.13.1 (amateur radio dashboard)' }
     });
     const html = await response.text();
 
@@ -1120,7 +1120,7 @@ app.get('/api/dxcluster/spots', async (req, res) => {
     
     try {
       const response = await fetch('https://www.hamqth.com/dxc_csv.php?limit=25', {
-        headers: { 'User-Agent': 'OpenHamClock/3.5' },
+        headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
         signal: controller.signal
       });
       clearTimeout(timeout);
@@ -1179,7 +1179,7 @@ app.get('/api/dxcluster/spots', async (req, res) => {
     
     try {
       const response = await fetch(`${DXSPIDER_PROXY_URL}/api/dxcluster/spots?limit=50`, {
-        headers: { 'User-Agent': 'OpenHamClock/3.5' },
+        headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
         signal: controller.signal
       });
       clearTimeout(timeout);
@@ -1429,7 +1429,7 @@ app.get('/api/dxcluster/paths', async (req, res) => {
     
     try {
       const proxyResponse = await fetch(`${DXSPIDER_PROXY_URL}/api/spots?limit=100`, {
-        headers: { 'User-Agent': 'OpenHamClock/3.7' },
+        headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
         signal: controller.signal
       });
       
@@ -1458,7 +1458,7 @@ app.get('/api/dxcluster/paths', async (req, res) => {
     if (newSpots.length === 0) {
       try {
         const response = await fetch('https://www.hamqth.com/dxc_csv.php?limit=50', {
-          headers: { 'User-Agent': 'OpenHamClock/3.7' },
+          headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
           signal: controller.signal
         });
         
@@ -2498,7 +2498,7 @@ app.get('/api/myspots/:callsign', async (req, res) => {
     const response = await fetch(
       `https://www.hamqth.com/dxc_csv.php?limit=100`,
       {
-        headers: { 'User-Agent': 'OpenHamClock/3.3' },
+        headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
         signal: controller.signal
       }
     );
@@ -2714,7 +2714,7 @@ app.get('/api/pskreporter/http/:callsign', async (req, res) => {
     
     const response = await fetch(url, {
       headers: { 
-        'User-Agent': 'OpenHamClock/3.11 (Amateur Radio Dashboard)',
+        'User-Agent': 'OpenHamClock/3.13.1 (Amateur Radio Dashboard)',
         'Accept': '*/*'
       },
       signal: controller.signal
@@ -3188,7 +3188,7 @@ app.get('/api/wspr/heatmap', async (req, res) => {
     
     const response = await fetch(url, {
       headers: { 
-        'User-Agent': 'OpenHamClock/3.12 (Amateur Radio Dashboard)',
+        'User-Agent': 'OpenHamClock/3.13.1 (Amateur Radio Dashboard)',
         'Accept': '*/*'
       },
       signal: controller.signal
@@ -3385,7 +3385,7 @@ app.get('/api/satellites/tle', async (req, res) => {
     const response = await fetch(
       'https://celestrak.org/NORAD/elements/gp.php?GROUP=amateur&FORMAT=tle',
       {
-        headers: { 'User-Agent': 'OpenHamClock/3.3' },
+        headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
         signal: controller.signal
       }
     );
@@ -3428,7 +3428,7 @@ app.get('/api/satellites/tle', async (req, res) => {
         const issResponse = await fetch(
           'https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle',
           { 
-            headers: { 'User-Agent': 'OpenHamClock/3.3' },
+            headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
             signal: issController.signal
           }
         );
@@ -3491,7 +3491,7 @@ async function fetchIonosondeData() {
   
   try {
     const response = await fetch('https://prop.kc2g.com/api/stations.json', {
-      headers: { 'User-Agent': 'OpenHamClock/3.5' },
+      headers: { 'User-Agent': 'OpenHamClock/3.13.1' },
       timeout: 15000
     });
     
@@ -4302,7 +4302,7 @@ app.get('/api/contests', async (req, res) => {
     
     const response = await fetch('https://www.contestcalendar.com/calendar.rss', {
       headers: { 
-        'User-Agent': 'OpenHamClock/3.3',
+        'User-Agent': 'OpenHamClock/3.13.1',
         'Accept': 'application/rss+xml, application/xml, text/xml'
       },
       signal: controller.signal
