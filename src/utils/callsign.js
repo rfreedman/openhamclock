@@ -256,8 +256,14 @@ export const applyDXFilters = (item, filters) => {
    * DE (spotter) INCLUDE filters (from the 'Zones' tab)
    */
   // DE Continent 'include' filter - filter by SPOTTER's continent
+  // Also excludes domestic spots (DX in same continent as spotter)
   if (filters.continents?.length > 0) {
+    // Spotter must be FROM one of the selected continents
     if (!spotterInfo.continent || !filters.continents.includes(spotterInfo.continent)) {
+      return false;
+    }
+    // DX must be OUTSIDE the selected continents (exclude domestic spots)
+    if (dxInfo.continent && filters.continents.includes(dxInfo.continent)) {
       return false;
     }
   }
