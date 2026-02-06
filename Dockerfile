@@ -29,14 +29,10 @@ FROM node:20-alpine AS production
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S openhamclock -u 1001
-
 WORKDIR /app
 
 # Create /data directory for persistent stats (Railway volume mount point)
-RUN mkdir -p /data && chown openhamclock:nodejs /data
+RUN mkdir -p /data
 
 # Copy package files and install production deps only
 COPY package*.json ./
@@ -45,8 +41,6 @@ RUN npm install --omit=dev
 # Copy server files
 COPY server.js ./
 COPY config.js ./
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
 
 # Copy WSJT-X relay agent (served as download to users)
 COPY wsjtx-relay ./wsjtx-relay
@@ -60,12 +54,6 @@ COPY public ./public
 # Create local data directory as fallback
 RUN mkdir -p /app/data
 
-# Set ownership of everything
-RUN chown -R openhamclock:nodejs /app /data
-
-# Switch to non-root user
-USER openhamclock
-
 # Expose ports (3000 = web, 2237 = WSJT-X UDP)
 EXPOSE 3000
 EXPOSE 2237/udp
@@ -74,5 +62,5 @@ EXPOSE 2237/udp
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
-# Use entrypoint script for permission handling
-ENTRYPOINT ["./docker-entrypoint.sh"]
+# Start server (running as root to allow writing to Railway volumes)
+CMD ["node", "server.js"]
