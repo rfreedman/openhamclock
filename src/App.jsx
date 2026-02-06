@@ -171,10 +171,6 @@ const App = () => {
     } catch (e) {}
   }, [satelliteFilters]);
   
-  // Filter satellites based on selection
-  const filteredSatellites = satelliteFilters.length > 0 
-    ? (satellites.data || []).filter(sat => satelliteFilters.includes(sat.name))
-    : satellites.data;
   const togglePSKReporter = useCallback(() => setMapLayers(prev => ({ ...prev, showPSKReporter: !prev.showPSKReporter })), []);
   const toggleWSJTX = useCallback(() => setMapLayers(prev => ({ ...prev, showWSJTX: !prev.showWSJTX })), []);
   
@@ -288,6 +284,12 @@ const App = () => {
   const propagation = usePropagation(config.location, dxLocation);
   const mySpots = useMySpots(config.callsign);
   const satellites = useSatellites(config.location);
+  
+  // Filter satellites based on selection
+  const filteredSatellites = satelliteFilters.length > 0 
+    ? (satellites.data || []).filter(sat => satelliteFilters.includes(sat.name))
+    : satellites.data;
+  
   const localWeather = useWeather(config.location, tempUnit);
   const pskReporter = usePSKReporter(config.callsign, { minutes: 15, enabled: config.callsign !== 'N0CALL' });
   const wsjtx = useWSJTX();
