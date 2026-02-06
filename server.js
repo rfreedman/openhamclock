@@ -24,6 +24,7 @@ const fetch = require('node-fetch');
 const net = require('net');
 const dgram = require('dgram');
 const fs = require('fs');
+const { execFile, spawn } = require('child_process');
 
 // Read version from package.json as single source of truth
 const APP_VERSION = (() => {
@@ -143,6 +144,8 @@ const CONFIG = {
   showSatellites: process.env.SHOW_SATELLITES !== 'false' && jsonConfig.features?.showSatellites !== false,
   showPota: process.env.SHOW_POTA !== 'false' && jsonConfig.features?.showPOTA !== false,
   showDxPaths: process.env.SHOW_DX_PATHS !== 'false' && jsonConfig.features?.showDXPaths !== false,
+  showDxWeather: process.env.SHOW_DX_WEATHER !== 'false' && jsonConfig.features?.showDXWeather !== false,
+  classicAnalogClock: process.env.CLASSIC_ANALOG_CLOCK === 'true' || jsonConfig.features?.classicAnalogClock === true,
   showContests: jsonConfig.features?.showContests !== false,
   showDXpeditions: jsonConfig.features?.showDXpeditions !== false,
   
@@ -338,6 +341,131 @@ setInterval(() => {
     console.log(`[Visitors] Today so far: ${visitorStats.uniqueIPs.size} unique, ${visitorStats.totalRequests} requests | All-time: ${visitorStats.allTimeVisitors} visitors | Avg: ${avg}/day`);
   }
 }, 60 * 60 * 1000);
+
+// ============================================
+// AUTO UPDATE (GIT)
+// ============================================
+const AUTO_UPDATE_ENABLED = process.env.AUTO_UPDATE_ENABLED === 'true';
+const AUTO_UPDATE_INTERVAL_MINUTES = parseInt(process.env.AUTO_UPDATE_INTERVAL_MINUTES || '60');
+const AUTO_UPDATE_ON_START = process.env.AUTO_UPDATE_ON_START === 'true';
+const AUTO_UPDATE_EXIT_AFTER = process.env.AUTO_UPDATE_EXIT_AFTER !== 'false';
+
+const autoUpdateState = {
+  inProgress: false,
+  lastCheck: 0,
+  lastResult: ''
+};
+
+function execFilePromise(cmd, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, options, (err, stdout, stderr) => {
+      if (err) {
+        err.stdout = stdout;
+        err.stderr = stderr;
+        return reject(err);
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function hasGitUpdates() {
+  await execFilePromise('git', ['fetch', 'origin'], { cwd: __dirname });
+  const local = (await execFilePromise('git', ['rev-parse', 'HEAD'], { cwd: __dirname })).stdout.trim();
+  let remote = '';
+  try {
+    remote = (await execFilePromise('git', ['rev-parse', 'origin/main'], { cwd: __dirname })).stdout.trim();
+  } catch {
+    remote = (await execFilePromise('git', ['rev-parse', 'origin/master'], { cwd: __dirname })).stdout.trim();
+  }
+  return { updateAvailable: local !== remote, local, remote };
+}
+
+async function hasDirtyWorkingTree() {
+  const status = await execFilePromise('git', ['status', '--porcelain'], { cwd: __dirname });
+  return status.stdout.trim().length > 0;
+}
+
+function runUpdateScript() {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, 'scripts', 'update.sh');
+    const child = spawn('bash', [scriptPath, '--auto'], {
+      cwd: __dirname,
+      stdio: 'inherit'
+    });
+    child.on('exit', (code) => {
+      if (code === 0) return resolve();
+      reject(new Error(`update.sh exited with code ${code}`));
+    });
+  });
+}
+
+async function autoUpdateTick(trigger = 'interval', force = false) {
+  if ((!AUTO_UPDATE_ENABLED && !force) || autoUpdateState.inProgress) return;
+  autoUpdateState.inProgress = true;
+  autoUpdateState.lastCheck = Date.now();
+
+  try {
+    if (!fs.existsSync(path.join(__dirname, '.git'))) {
+      autoUpdateState.lastResult = 'not-git';
+      logWarn('[Auto Update] Skipped - not a git repository');
+      return;
+    }
+
+    try {
+      await execFilePromise('git', ['--version']);
+    } catch {
+      autoUpdateState.lastResult = 'no-git';
+      logWarn('[Auto Update] Skipped - git not installed');
+      return;
+    }
+
+    if (await hasDirtyWorkingTree()) {
+      autoUpdateState.lastResult = 'dirty';
+      logWarn('[Auto Update] Skipped - local changes detected');
+      return;
+    }
+
+    const { updateAvailable } = await hasGitUpdates();
+    if (!updateAvailable) {
+      autoUpdateState.lastResult = 'up-to-date';
+      logInfo(`[Auto Update] Up to date (${trigger})`);
+      return;
+    }
+
+    autoUpdateState.lastResult = 'updating';
+    logInfo('[Auto Update] Updates available - running update script');
+    await runUpdateScript();
+    autoUpdateState.lastResult = 'updated';
+    logInfo('[Auto Update] Update complete');
+
+    if (AUTO_UPDATE_EXIT_AFTER) {
+      logInfo('[Auto Update] Exiting to allow restart');
+      process.exit(0);
+    }
+  } catch (err) {
+    autoUpdateState.lastResult = 'error';
+    logErrorOnce('Auto Update', err.message);
+  } finally {
+    autoUpdateState.inProgress = false;
+  }
+}
+
+function startAutoUpdateScheduler() {
+  if (!AUTO_UPDATE_ENABLED) return;
+  const intervalMinutes = Number.isFinite(AUTO_UPDATE_INTERVAL_MINUTES) && AUTO_UPDATE_INTERVAL_MINUTES > 0
+    ? AUTO_UPDATE_INTERVAL_MINUTES
+    : 60;
+  const intervalMs = Math.max(5, intervalMinutes) * 60 * 1000;
+
+  logInfo(`[Auto Update] Enabled - every ${intervalMinutes} minutes`);
+
+  if (AUTO_UPDATE_ON_START) {
+    setTimeout(() => autoUpdateTick('startup'), 30000);
+  }
+
+  setInterval(() => autoUpdateTick('interval'), intervalMs);
+}
 
 // Serve static files
 // dist/ contains the built React app (from npm run build)
@@ -2353,6 +2481,296 @@ app.get('/api/pskreporter/:callsign', async (req, res) => {
 });
 
 // ============================================
+// REVERSE BEACON NETWORK (RBN) API
+// ============================================
+
+// Convert lat/lon to Maidenhead grid (6-character)
+function latLonToGrid(lat, lon) {
+  if (!isFinite(lat) || !isFinite(lon)) return null;
+  
+  // Adjust longitude to 0-360 range
+  let adjLon = lon + 180;
+  let adjLat = lat + 90;
+  
+  // Field (2 chars): 20° lon x 10° lat
+  const field1 = String.fromCharCode(65 + Math.floor(adjLon / 20));
+  const field2 = String.fromCharCode(65 + Math.floor(adjLat / 10));
+  
+  // Square (2 digits): 2° lon x 1° lat
+  const square1 = Math.floor((adjLon % 20) / 2);
+  const square2 = Math.floor((adjLat % 10) / 1);
+  
+  // Subsquare (2 chars): 5' lon x 2.5' lat
+  const subsq1 = String.fromCharCode(65 + Math.floor(((adjLon % 2) * 60) / 5));
+  const subsq2 = String.fromCharCode(65 + Math.floor(((adjLat % 1) * 60) / 2.5));
+  
+  return `${field1}${field2}${square1}${square2}${subsq1}${subsq2}`.toUpperCase();
+}
+
+// Persistent RBN connection and spot storage
+let rbnConnection = null;
+let rbnSpots = []; // Rolling buffer of recent spots
+const MAX_RBN_SPOTS = 500; // Keep last 500 spots
+const RBN_SPOT_TTL = 30 * 60 * 1000; // 30 minutes
+const callsignLocationCache = new Map(); // Permanent cache for skimmer locations
+
+// Helper function to convert frequency to band
+function freqToBandKHz(freqKHz) {
+  if (freqKHz >= 1800 && freqKHz < 2000) return '160m';
+  if (freqKHz >= 3500 && freqKHz < 4000) return '80m';
+  if (freqKHz >= 7000 && freqKHz < 7300) return '40m';
+  if (freqKHz >= 10100 && freqKHz < 10150) return '30m';
+  if (freqKHz >= 14000 && freqKHz < 14350) return '20m';
+  if (freqKHz >= 18068 && freqKHz < 18168) return '17m';
+  if (freqKHz >= 21000 && freqKHz < 21450) return '15m';
+  if (freqKHz >= 24890 && freqKHz < 24990) return '12m';
+  if (freqKHz >= 28000 && freqKHz < 29700) return '10m';
+  if (freqKHz >= 50000 && freqKHz < 54000) return '6m';
+  return 'Other';
+}
+
+/**
+ * Maintain persistent connection to RBN Telnet
+ */
+function maintainRBNConnection(port = 7000) {
+  if (rbnConnection && !rbnConnection.destroyed) {
+    return; // Already connected
+  }
+  
+  console.log(`[RBN] Creating persistent connection to telnet.reversebeacon.net:${port}...`);
+  
+  let dataBuffer = '';
+  let authenticated = false;
+  const userCallsign = 'OPENHAMCLOCK'; // Generic callsign for the app
+  
+  const client = net.createConnection({ 
+    host: 'telnet.reversebeacon.net', 
+    port: port 
+  }, () => {
+    console.log(`[RBN] Persistent connection established`);
+  });
+
+  client.setEncoding('utf8');
+  client.setKeepAlive(true, 60000); // Keep alive every 60s
+  
+  client.on('data', (data) => {
+    dataBuffer += data;
+    
+    // Check for authentication prompt
+    if (!authenticated && dataBuffer.includes('Please enter your call:')) {
+      console.log(`[RBN] Authenticating as ${userCallsign}`);
+      client.write(`${userCallsign}\r\n`);
+      authenticated = true;
+      dataBuffer = '';
+      return;
+    }
+    
+    const lines = dataBuffer.split('\n');
+    dataBuffer = lines.pop() || '';
+    
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      
+      // Start collecting after authentication
+      if (authenticated && line.includes('Connected')) {
+        console.log(`[RBN] Authenticated, now streaming spots...`);
+        continue;
+      }
+      
+      // Parse RBN spot line format:
+      // DX de W3LPL-#:     7003.0  K3LR           CW    30 dB  23 WPM  CQ      0123Z
+      const spotMatch = line.match(/DX de\s+(\S+)\s*:\s*([\d.]+)\s+(\S+)\s+(\S+)\s+([-\d]+)\s+dB\s+(\d+)\s+WPM/);
+      
+      if (spotMatch) {
+        const [, skimmer, freq, dx, mode, snr, wpm] = spotMatch;
+        const timestamp = Date.now();
+        const freqNum = parseFloat(freq) * 1000;
+        const band = freqToBandKHz(freqNum / 1000);
+        
+        const spot = {
+          callsign: skimmer.replace(/-#.*$/, ''),
+          skimmerFull: skimmer,
+          dx: dx,
+          frequency: freqNum,
+          freqMHz: parseFloat(freq),
+          band: band,
+          mode: mode,
+          snr: parseInt(snr),
+          wpm: parseInt(wpm),
+          timestamp: new Date().toISOString(),
+          timestampMs: timestamp,
+          age: 0,
+          source: 'rbn-telnet',
+          grid: null // Will be filled by frontend from cache
+        };
+        
+        // Add to rolling buffer
+        rbnSpots.push(spot);
+        
+        // Keep only recent spots
+        if (rbnSpots.length > MAX_RBN_SPOTS) {
+          rbnSpots.shift();
+        }
+        
+        // Clean old spots
+        const cutoff = timestamp - RBN_SPOT_TTL;
+        rbnSpots = rbnSpots.filter(s => s.timestampMs > cutoff);
+      }
+    }
+  });
+
+  client.on('error', (err) => {
+    console.error(`[RBN] Connection error: ${err.message}`);
+    rbnConnection = null;
+    // Reconnect after 5 seconds
+    setTimeout(() => maintainRBNConnection(port), 5000);
+  });
+
+  client.on('close', () => {
+    console.log(`[RBN] Connection closed, reconnecting in 5s...`);
+    rbnConnection = null;
+    setTimeout(() => maintainRBNConnection(port), 5000);
+  });
+  
+  rbnConnection = client;
+}
+
+// Start persistent connection on server startup
+maintainRBNConnection(7000);
+
+// Endpoint to get recent RBN spots (no filtering, just return all recent spots)
+app.get('/api/rbn/spots', async (req, res) => {
+  const minutes = parseInt(req.query.minutes) || 30;
+  const limit = parseInt(req.query.limit) || 500;
+  
+  const now = Date.now();
+  const cutoff = now - (minutes * 60 * 1000);
+  
+  // Filter by time window
+  const recentSpots = rbnSpots
+    .filter(spot => spot.timestampMs > cutoff)
+    .slice(-limit); // Get most recent
+  
+  // Enrich spots with skimmer location data
+  const enrichedSpots = await Promise.all(recentSpots.map(async (spot) => {
+    const skimmerCall = spot.callsign;
+    
+    // Check cache first
+    if (callsignLocationCache.has(skimmerCall)) {
+      const location = callsignLocationCache.get(skimmerCall);
+      return {
+        ...spot,
+        grid: location.grid,
+        skimmerLat: location.lat,
+        skimmerLon: location.lon,
+        skimmerCountry: location.country
+      };
+    }
+    
+    // Lookup location (don't block on failures)
+    try {
+      const response = await fetch(`http://localhost:${PORT}/api/callsign/${skimmerCall}`);
+      if (response.ok) {
+        const locationData = await response.json();
+        const grid = latLonToGrid(locationData.lat, locationData.lon);
+        
+        const location = {
+          callsign: skimmerCall,
+          grid: grid,
+          lat: locationData.lat,
+          lon: locationData.lon,
+          country: locationData.country
+        };
+        
+        // Cache permanently
+        callsignLocationCache.set(skimmerCall, location);
+        
+        return {
+          ...spot,
+          grid: grid,
+          skimmerLat: locationData.lat,
+          skimmerLon: locationData.lon,
+          skimmerCountry: locationData.country
+        };
+      }
+    } catch (err) {
+      // Silent fail - return spot without location
+    }
+    
+    // Return spot as-is if lookup failed
+    return spot;
+  }));
+  
+  console.log(`[RBN] Returning ${enrichedSpots.length} enriched spots (last ${minutes} min)`);
+  
+  res.json({
+    count: enrichedSpots.length,
+    spots: enrichedSpots,
+    minutes: minutes,
+    timestamp: new Date().toISOString(),
+    source: 'rbn-telnet-stream'
+  });
+});
+
+// Endpoint to lookup skimmer location (cached permanently)
+app.get('/api/rbn/location/:callsign', async (req, res) => {
+  const callsign = req.params.callsign.toUpperCase();
+  
+  // Check cache first
+  if (callsignLocationCache.has(callsign)) {
+    return res.json(callsignLocationCache.get(callsign));
+  }
+  
+  try {
+    // Look up via HamQTH
+    const response = await fetch(`http://localhost:${PORT}/api/callsign/${callsign}`);
+    if (response.ok) {
+      const locationData = await response.json();
+      const grid = latLonToGrid(locationData.lat, locationData.lon);
+      
+      const result = {
+        callsign: callsign,
+        grid: grid,
+        lat: locationData.lat,
+        lon: locationData.lon,
+        country: locationData.country
+      };
+      
+      // Cache permanently (skimmers don't move!)
+      callsignLocationCache.set(callsign, result);
+      
+      return res.json(result);
+    }
+  } catch (err) {
+    console.warn(`[RBN] Failed to lookup ${callsign}: ${err.message}`);
+  }
+  
+  res.status(404).json({ error: 'Location not found' });
+});
+
+// Legacy endpoint for compatibility (deprecated)
+app.get('/api/rbn', async (req, res) => {
+  console.log('[RBN] Warning: Using deprecated /api/rbn endpoint, use /api/rbn/spots instead');
+  
+  const callsign = (req.query.callsign || '').toUpperCase().trim();
+  const minutes = parseInt(req.query.minutes) || 30;
+  const limit = parseInt(req.query.limit) || 100;
+  
+  if (!callsign || callsign === 'N0CALL') {
+    return res.json([]);
+  }
+  
+  const now = Date.now();
+  const cutoff = now - (minutes * 60 * 1000);
+  
+  // Filter spots for this callsign
+  const userSpots = rbnSpots
+    .filter(spot => spot.timestampMs > cutoff && spot.dx.toUpperCase() === callsign)
+    .slice(-limit);
+  
+  res.json(userSpots);
+});
+// ============================================
 // WSPR PROPAGATION HEATMAP API
 // ============================================
 
@@ -2488,6 +2906,7 @@ app.get('/api/wspr/heatmap', async (req, res) => {
     });
   }
 });
+
 
 // ============================================
 // SATELLITE TRACKING API
@@ -3900,6 +4319,43 @@ app.get('/api/config', (req, res) => {
 });
 
 // ============================================
+// MANUAL UPDATE ENDPOINT
+// ============================================
+app.post('/api/update', async (req, res) => {
+  if (autoUpdateState.inProgress) {
+    return res.status(409).json({ error: 'Update already in progress' });
+  }
+
+  try {
+    if (!fs.existsSync(path.join(__dirname, '.git'))) {
+      return res.status(503).json({ error: 'Not a git repository' });
+    }
+    await execFilePromise('git', ['--version']);
+    if (await hasDirtyWorkingTree()) {
+      return res.status(409).json({ error: 'Local changes detected' });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: 'Update preflight failed' });
+  }
+
+  // Respond immediately; update runs asynchronously
+  res.json({ ok: true, started: true, timestamp: Date.now() });
+
+  setTimeout(() => {
+    autoUpdateTick('manual', true);
+  }, 100);
+});
+
+app.get('/api/update/status', (req, res) => {
+  res.json({
+    enabled: AUTO_UPDATE_ENABLED,
+    inProgress: autoUpdateState.inProgress,
+    lastCheck: autoUpdateState.lastCheck,
+    lastResult: autoUpdateState.lastResult
+  });
+});
+
+// ============================================
 // WSJT-X UDP LISTENER
 // ============================================
 // Receives decoded messages from WSJT-X, JTDX, etc.
@@ -4726,6 +5182,305 @@ app.get('/api/wsjtx/relay/download/:platform', (req, res) => {
   }
 });
 
+// CONTEST LOGGER UDP + API (N1MM / DXLog)
+// ============================================
+
+const N1MM_UDP_PORT = parseInt(process.env.N1MM_UDP_PORT || '12060');
+const N1MM_ENABLED = process.env.N1MM_UDP_ENABLED === 'true';
+const N1MM_MAX_QSOS = parseInt(process.env.N1MM_MAX_QSOS || '200');
+const N1MM_QSO_MAX_AGE = parseInt(process.env.N1MM_QSO_MAX_AGE_MINUTES || '360') * 60 * 1000;
+
+const contestQsoState = {
+  qsos: [],
+  stats: { total: 0, lastSeen: 0 }
+};
+const contestQsoIds = new Map();
+
+function extractContactInfoXml(text) {
+  if (!text) return null;
+  const start = text.indexOf('<contactinfo');
+  if (start === -1) return null;
+  const end = text.indexOf('</contactinfo>', start);
+  if (end === -1) return null;
+  return text.slice(start, end + '</contactinfo>'.length);
+}
+
+function getXmlTag(xml, tag) {
+  if (!xml) return '';
+  const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i');
+  const match = xml.match(re);
+  return match ? match[1].trim() : '';
+}
+
+function parseN1MMTimestamp(value) {
+  if (!value) return null;
+  const normalized = value.trim().replace(' ', 'T');
+  const tsUtc = Date.parse(`${normalized}Z`);
+  if (!Number.isNaN(tsUtc)) return tsUtc;
+  const tsLocal = Date.parse(normalized);
+  if (!Number.isNaN(tsLocal)) return tsLocal;
+  return null;
+}
+
+function normalizeCallsign(value) {
+  return (value || '').trim().toUpperCase();
+}
+
+function n1mmFreqToMHz(value, bandMHz) {
+  const v = parseFloat(value);
+  if (!v || Number.isNaN(v)) return bandMHz || null;
+
+  // N1MM often reports freq in 10 Hz units (e.g., 1420000 => 14.2 MHz).
+  // Use band as a hint to pick the most plausible scaling.
+  const candidates = [
+    v / 1000000, // Hz -> MHz
+    v / 100000,  // 10 Hz -> MHz
+    v / 1000     // kHz -> MHz
+  ];
+
+  if (bandMHz && !Number.isNaN(bandMHz)) {
+    let best = candidates[0];
+    let bestDiff = Math.abs(best - bandMHz);
+    for (let i = 1; i < candidates.length; i++) {
+      const diff = Math.abs(candidates[i] - bandMHz);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = candidates[i];
+      }
+    }
+    return best;
+  }
+
+  if (v >= 1000000) return v / 1000000;
+  if (v >= 100000) return v / 100000;
+  if (v >= 1000) return v / 1000;
+  return bandMHz || null;
+}
+
+function resolveQsoLocation(dxCall, grid, comment) {
+  let gridToUse = grid;
+  if (!gridToUse && comment) {
+    const extracted = extractGridFromComment(comment);
+    if (extracted) gridToUse = extracted;
+  }
+  if (gridToUse) {
+    const loc = maidenheadToLatLon(gridToUse);
+    if (loc) {
+      return { lat: loc.lat, lon: loc.lon, grid: gridToUse, source: 'grid' };
+    }
+  }
+  const prefixLoc = estimateLocationFromPrefix(dxCall);
+  if (prefixLoc) {
+    return { lat: prefixLoc.lat, lon: prefixLoc.lon, grid: prefixLoc.grid || null, source: prefixLoc.source || 'prefix' };
+  }
+  return null;
+}
+
+function pruneContestQsos() {
+  const now = Date.now();
+  contestQsoState.qsos = contestQsoState.qsos.filter(q => (now - q.timestamp) <= N1MM_QSO_MAX_AGE);
+  if (contestQsoState.qsos.length > N1MM_MAX_QSOS) {
+    contestQsoState.qsos = contestQsoState.qsos.slice(-N1MM_MAX_QSOS);
+  }
+  if (contestQsoIds.size > N1MM_MAX_QSOS * 10) {
+    contestQsoIds.clear();
+    contestQsoState.qsos.forEach(q => contestQsoIds.set(q.id, q.timestamp));
+  }
+}
+
+function rememberContestQsoId(id) {
+  contestQsoIds.set(id, Date.now());
+  if (contestQsoIds.size > 2000) {
+    let removed = 0;
+    for (const key of contestQsoIds.keys()) {
+      contestQsoIds.delete(key);
+      removed++;
+      if (removed >= 500) break;
+    }
+  }
+}
+
+function addContestQso(qso) {
+  if (!qso || !qso.dxCall) return false;
+  const now = Date.now();
+  const timestamp = Number.isFinite(qso.timestamp) ? qso.timestamp : now;
+  const id = qso.id || `${qso.source || 'qso'}-${qso.myCall || ''}-${qso.dxCall}-${timestamp}-${qso.bandMHz || qso.freqMHz || ''}-${qso.mode || ''}`;
+  if (contestQsoIds.has(id)) return false;
+  qso.id = id;
+  qso.timestamp = timestamp;
+  rememberContestQsoId(id);
+  contestQsoState.qsos.push(qso);
+  contestQsoState.stats.total += 1;
+  contestQsoState.stats.lastSeen = now;
+  pruneContestQsos();
+  return true;
+}
+
+function parseN1MMContactInfo(xml) {
+  const dxCall = normalizeCallsign(getXmlTag(xml, 'call'));
+  if (!dxCall) return null;
+
+  const myCall = normalizeCallsign(getXmlTag(xml, 'mycall')) ||
+    normalizeCallsign(getXmlTag(xml, 'stationprefix')) ||
+    CONFIG.callsign;
+
+  const bandStr = getXmlTag(xml, 'band');
+  const bandMHz = bandStr ? parseFloat(bandStr) : null;
+  const rxRaw = parseFloat(getXmlTag(xml, 'rxfreq'));
+  const txRaw = parseFloat(getXmlTag(xml, 'txfreq'));
+  const freqMHz = n1mmFreqToMHz(!Number.isNaN(rxRaw) ? rxRaw : (!Number.isNaN(txRaw) ? txRaw : null), bandMHz);
+  const mode = (getXmlTag(xml, 'mode') || '').toUpperCase();
+  const comment = getXmlTag(xml, 'comment') || '';
+  const gridRaw = getXmlTag(xml, 'gridsquare');
+  const grid = (gridRaw || extractGridFromComment(comment) || '').toUpperCase();
+  const contestName = getXmlTag(xml, 'contestname') || '';
+  const timestampStr = getXmlTag(xml, 'timestamp') || '';
+  const timestamp = parseN1MMTimestamp(timestampStr) || Date.now();
+  const id = getXmlTag(xml, 'ID') || '';
+
+  const loc = resolveQsoLocation(dxCall, grid, comment);
+
+  const qso = {
+    id,
+    source: 'n1mm',
+    timestamp,
+    time: timestampStr,
+    myCall,
+    dxCall,
+    bandMHz: Number.isNaN(bandMHz) ? null : bandMHz,
+    freqMHz: Number.isNaN(freqMHz) ? null : freqMHz,
+    rxFreq: Number.isNaN(rxRaw) ? null : rxRaw,
+    txFreq: Number.isNaN(txRaw) ? null : txRaw,
+    mode,
+    grid: grid || null,
+    contest: contestName
+  };
+
+  if (loc) {
+    qso.lat = loc.lat;
+    qso.lon = loc.lon;
+    qso.locSource = loc.source;
+    if (!qso.grid && loc.grid) qso.grid = loc.grid;
+  }
+
+  return qso;
+}
+
+function normalizeContestQso(input, source) {
+  if (!input || typeof input !== 'object') return null;
+  const dxCall = normalizeCallsign(input.dxCall || input.call);
+  if (!dxCall) return null;
+  const myCall = normalizeCallsign(input.myCall || input.mycall || input.deCall) || CONFIG.callsign;
+  const bandMHz = parseFloat(input.bandMHz || input.band);
+  const freqMHz = parseFloat(input.freqMHz || input.freq);
+  const mode = (input.mode || '').toUpperCase();
+  const grid = (input.grid || input.gridsquare || '').toUpperCase();
+  const timestamp = typeof input.timestamp === 'number'
+    ? input.timestamp
+    : (parseN1MMTimestamp(input.timestamp) || Date.now());
+
+  let lat = parseFloat(input.lat);
+  let lon = parseFloat(input.lon);
+  let locSource = '';
+
+  if (grid && (Number.isNaN(lat) || Number.isNaN(lon))) {
+    const loc = maidenheadToLatLon(grid);
+    if (loc) {
+      lat = loc.lat;
+      lon = loc.lon;
+      locSource = 'grid';
+    }
+  }
+
+  if (Number.isNaN(lat) || Number.isNaN(lon)) {
+    const loc = estimateLocationFromPrefix(dxCall);
+    if (loc) {
+      lat = loc.lat;
+      lon = loc.lon;
+      if (!locSource) locSource = loc.source || 'prefix';
+    }
+  }
+
+  return {
+    id: input.id || '',
+    source,
+    timestamp,
+    time: input.time || '',
+    myCall,
+    dxCall,
+    bandMHz: Number.isNaN(bandMHz) ? null : bandMHz,
+    freqMHz: Number.isNaN(freqMHz) ? null : freqMHz,
+    mode,
+    grid: grid || null,
+    lat: Number.isNaN(lat) ? null : lat,
+    lon: Number.isNaN(lon) ? null : lon,
+    locSource
+  };
+}
+
+let n1mmSocket = null;
+if (N1MM_ENABLED) {
+  try {
+    n1mmSocket = dgram.createSocket('udp4');
+
+    n1mmSocket.on('message', (buf) => {
+      const text = buf.toString('utf8');
+      const xml = extractContactInfoXml(text);
+      if (!xml) return;
+      const qso = parseN1MMContactInfo(xml);
+      if (qso) addContestQso(qso);
+    });
+
+    n1mmSocket.on('error', (err) => {
+      logErrorOnce('N1MM UDP', err.message);
+    });
+
+    n1mmSocket.on('listening', () => {
+      const addr = n1mmSocket.address();
+      console.log(`[N1MM] UDP listener on ${addr.address}:${addr.port}`);
+    });
+
+    n1mmSocket.bind(N1MM_UDP_PORT, '0.0.0.0');
+  } catch (e) {
+    console.error(`[N1MM] Failed to start UDP listener: ${e.message}`);
+  }
+}
+
+// API endpoint: get contest QSOs
+app.get('/api/contest/qsos', (req, res) => {
+  const limitRaw = parseInt(req.query.limit);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 200;
+  const since = parseInt(req.query.since) || 0;
+
+  pruneContestQsos();
+
+  const filtered = since
+    ? contestQsoState.qsos.filter(q => q.timestamp > since)
+    : contestQsoState.qsos;
+
+  res.json({
+    qsos: filtered.slice(-limit),
+    stats: {
+      total: contestQsoState.stats.total,
+      lastSeen: contestQsoState.stats.lastSeen
+    },
+    timestamp: Date.now()
+  });
+});
+
+// API endpoint: ingest contest QSOs (JSON)
+app.post('/api/contest/qsos', (req, res) => {
+  const payload = Array.isArray(req.body) ? req.body : [req.body];
+  let accepted = 0;
+
+  for (const entry of payload) {
+    const qso = normalizeContestQso(entry, 'http');
+    if (qso && addContestQso(qso)) accepted++;
+  }
+
+  res.json({ ok: true, accepted, timestamp: Date.now() });
+});
+
 // ============================================
 // CATCH-ALL FOR SPA
 // ============================================
@@ -4777,6 +5532,12 @@ app.listen(PORT, '0.0.0.0', () => {
   if (WSJTX_RELAY_KEY) {
     console.log(`  🔁 WSJT-X relay endpoint enabled (POST /api/wsjtx/relay)`);
   }
+  if (N1MM_ENABLED) {
+    console.log(`  📥 N1MM UDP listener on port ${N1MM_UDP_PORT}`);
+  }
+  if (AUTO_UPDATE_ENABLED) {
+    console.log(`  🔄 Auto-update enabled every ${AUTO_UPDATE_INTERVAL_MINUTES || 60} minutes`);
+  }
   console.log('  🖥️  Open your browser to start using OpenHamClock');
   console.log('');
   if (CONFIG.callsign !== 'N0CALL') {
@@ -4788,6 +5549,8 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  In memory of Elwood Downey, WB0OEW');
   console.log('  73 de OpenHamClock contributors');
   console.log('');
+
+  startAutoUpdateScheduler();
 });
 
 // Graceful shutdown

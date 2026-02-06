@@ -16,8 +16,11 @@ export const Header = ({
   use12Hour,
   onTimeFormatToggle,
   onSettingsClick,
+  onUpdateClick,
   onFullscreenToggle,
-  isFullscreen
+  isFullscreen,
+  updateInProgress,
+  showUpdateButton
 }) => {
   return (
     <div style={{
@@ -153,6 +156,48 @@ export const Header = ({
         >
           ☕ Donate
         </a>
+        <a
+          href="https://www.paypal.com/donate/?hosted_button_id=MMYPQBLA6SW68"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            background: 'linear-gradient(135deg, #0070ba 0%, #003087 100%)',
+            border: 'none',
+            padding: '6px 10px',
+            borderRadius: '4px',
+            color: '#fff',
+            fontSize: '12px',
+            cursor: 'pointer',
+            fontWeight: '600',
+            textDecoration: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '3px',
+            whiteSpace: 'nowrap'
+          }}
+          title="Donate via PayPal"
+        >
+          💳 PayPal
+        </a>
+        {showUpdateButton && (
+          <button
+            onClick={onUpdateClick}
+            disabled={updateInProgress}
+            style={{
+              background: updateInProgress ? 'rgba(0, 255, 136, 0.15)' : 'var(--bg-tertiary)',
+              border: `1px solid ${updateInProgress ? 'var(--accent-green)' : 'var(--border-color)'}`,
+              padding: '6px 10px',
+              borderRadius: '4px',
+              color: updateInProgress ? 'var(--accent-green)' : 'var(--text-secondary)',
+              fontSize: '12px',
+              cursor: updateInProgress ? 'wait' : 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+            title="Run update now (server will restart)"
+          >
+            {updateInProgress ? 'UPDATING...' : 'UPDATE'}
+          </button>
+        )}
         <button
           onClick={onSettingsClick}
           style={{
