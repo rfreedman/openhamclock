@@ -17,6 +17,7 @@ import {
   DXpeditionPanel,
   PSKReporterPanel,
   WeatherPanel,
+  AmbientPanel,
   AnalogClockPanel
 } from './components';
 
@@ -133,6 +134,7 @@ export const DockableApp = ({
     'dxpeditions': { name: 'DXpeditions', icon: '🏝️' },
     'pota': { name: 'POTA', icon: '🏕️' },
     'contests': { name: 'Contests', icon: '🏆' },
+    'ambient': { name: 'Ambient Weather', icon: '🌦️' },
   }), []);
 
   // Add panel
@@ -159,6 +161,7 @@ export const DockableApp = ({
           <span style={{ color: 'var(--accent-purple)', fontWeight: '600' }}>{deSunTimes.sunset}</span>
         </div>
       </div>
+
       <WeatherPanel
         location={config.location}
         tempUnit={tempUnit}
@@ -319,7 +322,18 @@ export const DockableApp = ({
 
       case 'contests':
         return <ContestPanel data={contests.data} loading={contests.loading} />;
-
+      case 'ambient':
+        return (
+          <AmbientPanel
+            tempUnit={tempUnit}
+            onTempUnitChange={(unit) => {
+              setTempUnit(unit);
+              try { localStorage.setItem('openhamclock_tempUnit', unit); } catch {}
+            }}
+            nodeId={nodeId}
+          />
+        );
+        
       default:
         // Handle legacy layout components - prompt user to reset
         return (

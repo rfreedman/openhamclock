@@ -21,6 +21,7 @@ import {
   PSKReporterPanel,
   DXNewsTicker,
   WeatherPanel,
+  AmbientPanel,
   AnalogClockPanel
 } from './components';
 
@@ -1544,7 +1545,12 @@ const App = () => {
               )}
             </div>
           )}
-
+          {config.panels?.ambient?.visible !== false && (
+           <AmbientPanel
+             tempUnit={tempUnit}
+             onTempUnitChange={(unit) => { setTempUnit(unit); try { localStorage.setItem('openhamclock_tempUnit', unit); } catch {} }}
+           />
+          )}
           {/* Analog Clock */}
           {classicAnalogClock && (
             <div className="panel" style={{ flex: '0 0 auto', minHeight: '200px' }}>
