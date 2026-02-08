@@ -14,6 +14,24 @@ export const PropagationPanel = ({ propagation, loading, bandConditions }) => {
     } catch (e) { return 'chart'; }
   });
   
+  // Color scheme: 'stoplight' (green=good, default) or 'heatmap' (red=good, VOACAP traditional)
+  const [colorScheme, setColorScheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('openhamclock_voacapColorScheme');
+      if (saved === 'heatmap') return 'heatmap';
+      return 'stoplight';
+    } catch (e) { return 'stoplight'; }
+  });
+  
+  const toggleColorScheme = (e) => {
+    e.stopPropagation();
+    const newScheme = colorScheme === 'stoplight' ? 'heatmap' : 'stoplight';
+    setColorScheme(newScheme);
+    try {
+      localStorage.setItem('openhamclock_voacapColorScheme', newScheme);
+    } catch (e) {}
+  };
+  
   // Cycle through view modes
   const cycleViewMode = () => {
     const modes = ['chart', 'bars', 'bands'];
@@ -45,15 +63,32 @@ export const PropagationPanel = ({ propagation, loading, bandConditions }) => {
   const { solarData, distance, currentBands, currentHour, hourlyPredictions, muf, luf, ionospheric, dataSource } = propagation;
   const hasRealData = ionospheric?.method === 'direct' || ionospheric?.method === 'interpolated';
   
-  // Heat map colors (VOACAP style - red=good, green=poor)
+  // Heat map colors - supports both schemes
+  // Stoplight: green=good, red=bad (intuitive)
+  // Heatmap: red=good, green=bad (traditional VOACAP)
   const getHeatColor = (rel) => {
-    if (rel >= 80) return '#ff0000';
-    if (rel >= 60) return '#ff6600';
+    if (colorScheme === 'heatmap') {
+      // Traditional VOACAP: red=good, green=poor
+      if (rel >= 80) return '#ff0000';
+      if (rel >= 60) return '#ff6600';
+      if (rel >= 40) return '#ffcc00';
+      if (rel >= 20) return '#88cc00';
+      if (rel >= 10) return '#00aa00';
+      return '#004400';
+    }
+    // Stoplight: green=good, red=bad
+    if (rel >= 80) return '#00cc00';
+    if (rel >= 60) return '#55bb00';
     if (rel >= 40) return '#ffcc00';
-    if (rel >= 20) return '#88cc00';
-    if (rel >= 10) return '#00aa00';
-    return '#004400';
+    if (rel >= 20) return '#ff6600';
+    if (rel >= 10) return '#cc2200';
+    return '#441111';
   };
+  
+  // Legend colors (must match getHeatColor order low→high)
+  const legendColors = colorScheme === 'heatmap'
+    ? ['#004400', '#00aa00', '#88cc00', '#ffcc00', '#ff6600', '#ff0000']
+    : ['#441111', '#cc2200', '#ff6600', '#ffcc00', '#55bb00', '#00cc00'];
 
   const getReliabilityColor = (rel) => {
     if (rel >= 70) return '#00ff88';
@@ -236,9 +271,26 @@ export const PropagationPanel = ({ propagation, loading, bandConditions }) => {
               }}>
                 <div style={{ display: 'flex', gap: '2px', alignItems: 'center' }}>
                   <span style={{ color: 'var(--text-muted)' }}>REL:</span>
-                  {['#004400', '#00aa00', '#88cc00', '#ffcc00', '#ff6600', '#ff0000'].map((c, i) => (
+                  {legendColors.map((c, i) => (
                     <div key={i} style={{ width: '8px', height: '8px', background: c, borderRadius: '1px' }} />
                   ))}
+                  <span 
+                    onClick={toggleColorScheme}
+                    style={{ 
+                      color: 'var(--text-muted)', 
+                      fontSize: '9px', 
+                      marginLeft: '4px',
+                      padding: '1px 4px',
+                      background: 'var(--bg-tertiary)',
+                      borderRadius: '3px',
+                      cursor: 'pointer',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      userSelect: 'none'
+                    }}
+                    title={colorScheme === 'stoplight' ? 'Switch to VOACAP heatmap colors (red=good)' : 'Switch to stoplight colors (green=good)'}
+                  >
+                    {colorScheme === 'stoplight' ? '🚦' : '🌡️'}
+                  </span>
                 </div>
                 <div style={{ color: 'var(--text-muted)' }}>
                   {Math.round(distance || 0)}km • {ionospheric?.foF2 ? `foF2=${ionospheric.foF2}` : `SSN=${solarData?.ssn}`}
