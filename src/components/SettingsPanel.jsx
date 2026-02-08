@@ -31,6 +31,7 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave, onResetLayout, 
   const [customDxCluster, setCustomDxCluster] = useState(config?.customDxCluster || { enabled: false, host: '', port: 7300 });
   const [lowMemoryMode, setLowMemoryMode] = useState(config?.lowMemoryMode || false);
   const [showDxNews, setShowDxNews] = useState(config?.showDxNews ?? true);
+  const [satelliteSearch, setSatelliteSearch] = useState('');
   const { t, i18n } = useTranslation();
 
   // Layer controls
@@ -1073,6 +1074,47 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave, onResetLayout, 
                 : t('station.settings.satellites.selectedCount', { count: satelliteFilters.length })}
             </div>
             
+            {/* Search Box */}
+            <div style={{
+              position: 'relative',
+              marginBottom: '12px'
+            }}>
+              <input
+                type="text"
+                value={satelliteSearch}
+                onChange={(e) => setSatelliteSearch(e.target.value)}
+                placeholder="🔍 Search satellites..."
+                style={{
+                  width: '100%',
+                  padding: '8px 32px 8px 12px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '6px',
+                  color: 'var(--text-primary)',
+                  fontFamily: 'JetBrains Mono',
+                  fontSize: '12px',
+                  outline: 'none'
+                }}
+              />
+              {satelliteSearch && (
+                <button
+                  onClick={() => setSatelliteSearch('')}
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#ff6666',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    padding: '4px 8px'
+                  }}
+                >×</button>
+              )}
+            </div>
+            
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(2, 1fr)',
@@ -1080,7 +1122,12 @@ export const SettingsPanel = ({ isOpen, onClose, config, onSave, onResetLayout, 
               maxHeight: '400px',
               overflowY: 'auto'
             }}>
-              {(satellites || []).map(sat => {
+              {(satellites || [])
+                .filter(sat => 
+                  !satelliteSearch || 
+                  sat.name.toLowerCase().includes(satelliteSearch.toLowerCase())
+                )
+                .map(sat => {
                 const isSelected = satelliteFilters.includes(sat.name);
                 return (
                   <button
