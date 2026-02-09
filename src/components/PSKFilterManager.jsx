@@ -6,13 +6,14 @@ import React, { useState } from 'react';
 
 const BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m', '2m', '70cm'];
 const MODES = [
-  'FT8', 'VARAC', 'FT4', 'CW', 'JS8', 'FREEDV', 'WSPR', 'JT65', 'JT', 'MSK144', 
-  'FST4W', 'FSQ', 'FST4', 'Q65', 'RTTY', 'OPERA', 'CONTESTI', 'OLIVIA 8', 'PSK', 
-  'PSK31', 'Q65B', 'OLIVIA 4', 'ROS', 'PSK32', 'SIM31', 'OLIVIA 1', 'SSTV', 'SSB', 
-  'Q65D', 'JT9', 'PI4', 'ECHO', 'DOMINO', 'JT4', 'FSK441', 'HELL', 'MFSK32', 
-  'RTTY 45', 'Q65-30A', 'OLIVIA', 'THOR32', 'PSK63', 'THOR22', 'OLIVIA 3', 'JT65B', 
-  'PKT', 'THOR11', 'Q65A', 'MFSK16', 'POCSAG', 'CWU', 'THRB', 'NULL', 'FST4W-90', 
-  'THOR-M', 'DFCW-90', 'SIM63', 'MFSK22', 'HFDL', 'JTMS', 'LZ3CB', '-FT8'
+  '-FT8', 'CONTESTI', 'CW', 'CWU', 'DFCW-90', 'DOMINO', 'ECHO', 'FREEDV', 
+  'FSK441', 'FSQ', 'FST4', 'FST4W', 'FST4W-90', 'FT4', 'FT8', 'HELL', 'HFDL', 
+  'JT', 'JT4', 'JT65', 'JT65B', 'JT9', 'JTMS', 'JS8', 'LZ3CB', 'MFSK16', 
+  'MFSK22', 'MFSK32', 'MSK144', 'NULL', 'OLIVIA', 'OLIVIA 1', 'OLIVIA 3', 
+  'OLIVIA 4', 'OLIVIA 8', 'OPERA', 'PI4', 'PKT', 'POCSAG', 'PSK', 'PSK31', 
+  'PSK32', 'PSK63', 'Q65', 'Q65-30A', 'Q65A', 'Q65B', 'Q65D', 'ROS', 'RTTY', 
+  'RTTY 45', 'SIM31', 'SIM63', 'SSB', 'SSTV', 'THOR-M', 'THOR11', 'THOR22', 
+  'THOR32', 'THRB', 'VARAC', 'WSPR'
 ];
 
 // Common grid field prefixes by region
