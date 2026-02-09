@@ -50,6 +50,7 @@ export const DockableApp = ({
 
   // Weather
   localWeather,
+  dxWeather,
   tempUnit,
   setTempUnit,
   showDxWeather,
@@ -211,7 +212,7 @@ export const DockableApp = ({
       </div>
 
       <WeatherPanel
-        location={config.location}
+        weatherData={localWeather}
         tempUnit={tempUnit}
         onTempUnitChange={(unit) => { setTempUnit(unit); try { localStorage.setItem('openhamclock_tempUnit', unit); } catch {} }}
         nodeId={nodeId}
@@ -258,7 +259,7 @@ export const DockableApp = ({
       </div>
       {showDxWeather && (
         <WeatherPanel
-          location={dxLocation}
+          weatherData={dxWeather}
           tempUnit={tempUnit}
           onTempUnitChange={(unit) => { setTempUnit(unit); try { localStorage.setItem('openhamclock_tempUnit', unit); } catch {} }}
           nodeId={nodeId}
@@ -463,7 +464,7 @@ export const DockableApp = ({
     }
     return content;
   }, [
-    config, deGrid, dxGrid, dxLocation, deSunTimes, dxSunTimes, showDxWeather, tempUnit, solarIndices,
+    config, deGrid, dxGrid, dxLocation, deSunTimes, dxSunTimes, showDxWeather, tempUnit, localWeather, dxWeather, solarIndices,
     propagation, bandConditions, dxClusterData, dxFilters, hoveredSpot, mapLayers, potaSpots,
     mySpots, satellites, filteredPskSpots, wsjtxMapSpots, dxpeditions, contests,
     pskFilters, wsjtx, handleDXChange, setDxFilters, setShowDXFilters, setShowPSKFilters,

@@ -3610,7 +3610,7 @@ app.get('/api/pskreporter/http/:callsign', async (req, res) => {
     
     const response = await fetch(url, {
       headers: { 
-        'User-Agent': 'OpenHamClock/15.1.1 (Amateur Radio Dashboard)',
+        'User-Agent': 'OpenHamClock/15.1.2 (Amateur Radio Dashboard)',
         'Accept': '*/*'
       },
       signal: controller.signal
@@ -4237,7 +4237,7 @@ app.get('/api/wspr/heatmap', async (req, res) => {
     
     const response = await fetch(url, {
       headers: { 
-        'User-Agent': 'OpenHamClock/15.1.1 (Amateur Radio Dashboard)',
+        'User-Agent': 'OpenHamClock/15.1.2 (Amateur Radio Dashboard)',
         'Accept': '*/*'
       },
       signal: controller.signal
@@ -6673,8 +6673,8 @@ app.get('/api/config', (req, res) => {
 // Proxies weather requests through the server to prevent client-side rate limiting.
 // Coordinates are rounded to 1 decimal place (~11km grid) to maximize cache hits.
 const weatherCache = new Map(); // key: "lat,lon" → { data, timestamp }
-const WEATHER_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
-const WEATHER_STALE_TTL = 60 * 60 * 1000; // Serve stale data up to 1 hour if upstream is down
+const WEATHER_CACHE_TTL = 30 * 60 * 1000; // 30 minutes — matches client poll interval
+const WEATHER_STALE_TTL = 2 * 60 * 60 * 1000; // Serve stale data up to 2 hours if upstream is down
 
 app.get('/api/weather', async (req, res) => {
   const lat = parseFloat(req.query.lat);

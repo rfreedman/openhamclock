@@ -24,6 +24,7 @@ export default function ModernLayout(props) {
     localTime,
     localDate,
     localWeather,
+    dxWeather,
     spaceWeather,
     solarIndices,
     use12Hour,
@@ -136,7 +137,7 @@ export default function ModernLayout(props) {
               </div>
 
               <WeatherPanel
-                location={config.location}
+                weatherData={localWeather}
                 tempUnit={tempUnit}
                 onTempUnitChange={(unit) => { setTempUnit(unit); try { localStorage.setItem('openhamclock_tempUnit', unit); } catch { } }}
               />
@@ -232,7 +233,7 @@ export default function ModernLayout(props) {
               </div>
               {showDxWeather && (
                 <WeatherPanel
-                  location={dxLocation}
+                  weatherData={dxWeather}
                   tempUnit={tempUnit}
                   onTempUnitChange={(unit) => { setTempUnit(unit); try { localStorage.setItem('openhamclock_tempUnit', unit); } catch { } }}
                 />

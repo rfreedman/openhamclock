@@ -10,7 +10,7 @@ export { useDXPaths } from './useDXPaths.js';
 export { useDXClusterData } from './useDXClusterData.js';
 export { usePOTASpots } from './usePOTASpots.js';
 export { useContests } from './useContests.js';
-export { useWeather } from './useWeather.js';
+export { useWeather, convertWeatherData } from './useWeather.js';
 export { usePropagation } from './usePropagation.js';
 export { useMySpots } from './useMySpots.js';
 export { useDXpeditions } from './useDXpeditions.js';
