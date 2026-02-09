@@ -4,15 +4,18 @@
  */
 import React, { useState } from 'react';
 
-export const PropagationPanel = ({ propagation, loading, bandConditions }) => {
+export const PropagationPanel = ({ propagation, loading, bandConditions, forcedMode }) => {
   // Load view mode preference from localStorage
-  const [viewMode, setViewMode] = useState(() => {
+  const [internalViewMode, setViewMode] = useState(() => {
     try {
       const saved = localStorage.getItem('openhamclock_voacapViewMode');
       if (saved === 'bars' || saved === 'bands') return saved;
       return 'chart';
     } catch (e) { return 'chart'; }
   });
+
+  // When forcedMode is set, lock to that mode (used by dockable sub-panels)
+  const viewMode = forcedMode || internalViewMode;
   
   // Color scheme: 'stoplight' (green=good, default) or 'heatmap' (red=good, VOACAP traditional)
   const [colorScheme, setColorScheme] = useState(() => {
@@ -114,15 +117,17 @@ export const PropagationPanel = ({ propagation, loading, bandConditions }) => {
   const viewModeLabels = { chart: '▤ chart', bars: '▦ bars', bands: '◫ bands' };
 
   return (
-    <div className="panel" style={{ cursor: 'pointer' }} onClick={cycleViewMode}>
+    <div className="panel" style={{ cursor: forcedMode ? 'default' : 'pointer' }} onClick={forcedMode ? undefined : cycleViewMode}>
       <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>
           {viewMode === 'bands' ? '◫ BAND CONDITIONS' : '⌇ VOACAP'}
           {hasRealData && viewMode !== 'bands' && <span style={{ color: '#00ff88', fontSize: '10px', marginLeft: '4px' }}>●</span>}
         </span>
-        <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
-          {viewModeLabels[viewMode]} • click to toggle
-        </span>
+        {!forcedMode && (
+          <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
+            {viewModeLabels[viewMode]} • click to toggle
+          </span>
+        )}
       </div>
       
       {viewMode === 'bands' ? (
