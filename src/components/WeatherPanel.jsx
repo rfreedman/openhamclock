@@ -111,8 +111,8 @@ export const WeatherPanel = ({
   if (!w) return null;
 
   const deg = `°${w.tempUnit || tempUnit}`;
-  const wind = w.windUnit || 'mph';
-  const vis = w.visUnit || 'mi';
+  const wind = t(`weather.unit.${w.windUnit === 'km/h' ? 'kmh' : 'mph'}`);
+  const vis = t(`weather.unit.${w.visUnit === 'km' ? 'km' : 'mi'}`);
 
   return (
     <div ref={contentRef} style={{ marginTop: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '10px' }}>
@@ -129,7 +129,9 @@ export const WeatherPanel = ({
           <span style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', fontFamily: 'Orbitron, monospace' }}>
             {w.temp}{deg}
           </span>
-          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.description}</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {t(`weather.condition.${w.weatherCode}`, { defaultValue: w.description })}
+          </span>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'JetBrains Mono, monospace' }}>
             💨{w.windSpeed}
           </span>
@@ -202,7 +204,9 @@ export const WeatherPanel = ({
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-muted)' }}>{t('weather.wind')}</span>
-              <span style={{ color: 'var(--text-secondary)' }}>{w.windDir} {w.windSpeed} {wind}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {t(`weather.wind.${w.windDir}`, { defaultValue: w.windDir })} {w.windSpeed} {wind}
+              </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ color: 'var(--text-muted)' }}>{t('weather.humidity')}</span>
