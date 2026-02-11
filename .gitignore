@@ -81,3 +81,6 @@ config.json
 # Raspberry Pi specific
 *.img
 *.iso
+
+# Dev Tools
+.agent/
