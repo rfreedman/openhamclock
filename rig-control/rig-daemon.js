@@ -86,6 +86,11 @@ const state = {
   lastUpdate: 0,
 };
 
+const getTuneDelay = () => {
+  const parsed = Number(CONFIG?.radio?.tuneDelay);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 3000;
+};
+
 // SSE Clients
 let clients = [];
 
@@ -93,17 +98,6 @@ let clients = [];
 const broadcast = (data) => {
   const msg = `data: ${JSON.stringify(data)}\n\n`;
   clients.forEach((c) => c.res.write(msg));
-};
-
-// Interface Definition
-const RIG = {
-  connect: () => {},
-  getFreq: (cb) => {},
-  getMode: (cb) => {}, // includes width
-  getPTT: (cb) => {},
-  setFreq: (freq, cb) => {},
-  setMode: (mode, cb) => {},
-  setPTT: (ptt, cb) => {},
 };
 
 // ==========================================
@@ -301,7 +295,7 @@ const FlrigAdapter = {
   tune: () => {
     console.log("[Flrig] Sending Tune command...");
     // Try rig.tune first
-    FlrigAdapter.client.methodCall("rig.tune", [1], (err, val) => {
+    FlrigAdapter.client.methodCall("rig.tune", [1], (err, _val) => {
       if (err) {
         console.warn(
           "[Flrig] rig.tune failed, trying fallback (PTT toggle):",
@@ -309,7 +303,7 @@ const FlrigAdapter = {
         );
         // Fallback: Toggle PTT if TUNE command not supported/failed
         FlrigAdapter.setPTT(true, () => {
-          const delay = CONFIG.radio.tuneDelay || 3000;
+          const delay = getTuneDelay();
           setTimeout(() => {
             FlrigAdapter.setPTT(false, () => {
               console.log("[Flrig] Fallback Tune (PTT) completed");
@@ -396,7 +390,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get("/status", (req, res) => {
+app.get("/status", (_req, res) => {
   res.json({
     connected: state.connected,
     freq: state.freq,
@@ -445,7 +439,7 @@ app.post("/freq", (req, res) => {
   console.log(`[API] Setting Freq: ${freq}`);
 
   if (CONFIG.radio.type === "flrig") {
-    FlrigAdapter.setFreq(freq, (err, val) => {
+    FlrigAdapter.setFreq(freq, (err, _val) => {
       if (err) return res.status(500).json({ error: err.message });
 
       // Poll update immediately
@@ -453,21 +447,22 @@ app.post("/freq", (req, res) => {
 
       // Handle delayed Tune if requested
       if (req.body.tune) {
-        console.log("[API] Tune requested, scheduling for 3s...");
+        const delay = getTuneDelay();
+        console.log(`[API] Tune requested, scheduling for ${delay}ms...`);
         setTimeout(() => {
           FlrigAdapter.tune();
-        }, 3000);
+        }, delay);
       }
 
       res.json({ success: true });
     });
   } else if (CONFIG.radio.type === "mock") {
-    MockAdapter.setFreq(freq, (err) => {
+    MockAdapter.setFreq(freq, (_err) => {
       if (req.body.tune) MockAdapter.tune();
       res.json({ success: true });
     });
   } else {
-    RigaAdapter.send(`F ${freq}`, (err, val) => {
+    RigaAdapter.send(`F ${freq}`, (err, _val) => {
       if (err) return res.status(500).json({ error: err.message });
       setTimeout(() => RigaAdapter.send("f"), 100);
       res.json({ success: true });
@@ -484,17 +479,17 @@ app.post("/mode", (req, res) => {
   console.log(`[API] Setting Mode: ${mode}`);
 
   if (CONFIG.radio.type === "flrig") {
-    FlrigAdapter.setMode(mode, (err, val) => {
+    FlrigAdapter.setMode(mode, (err, _val) => {
       if (err) return res.status(500).json({ error: err.message });
       setTimeout(FlrigAdapter.poll, 100);
       res.json({ success: true });
     });
   } else if (CONFIG.radio.type === "mock") {
-    MockAdapter.setMode(mode, (err) => {
+    MockAdapter.setMode(mode, (_err) => {
       res.json({ success: true });
     });
   } else {
-    RigaAdapter.send(`M ${mode} ${passband}`, (err, val) => {
+    RigaAdapter.send(`M ${mode} ${passband}`, (err, _val) => {
       if (err) return res.status(500).json({ error: err.message });
       setTimeout(() => RigaAdapter.send("m"), 100);
       res.json({ success: true });
@@ -515,18 +510,18 @@ app.post("/ptt", (req, res) => {
   console.log(`[API] Setting PTT: ${ptt}`);
 
   if (CONFIG.radio.type === "flrig") {
-    FlrigAdapter.setPTT(ptt, (err, val) => {
+    FlrigAdapter.setPTT(ptt, (err, _val) => {
       if (err) return res.status(500).json({ error: err.message });
       state.ptt = !!ptt;
       res.json({ success: true });
     });
   } else if (CONFIG.radio.type === "mock") {
-    MockAdapter.setPTT(ptt, (err) => {
+    MockAdapter.setPTT(ptt, (_err) => {
       res.json({ success: true });
     });
   } else {
     const cmd = ptt ? "T 1" : "T 0";
-    RigaAdapter.send(cmd, (err, val) => {
+    RigaAdapter.send(cmd, (err, _val) => {
       if (err) return res.status(500).json({ error: err.message });
       state.ptt = !!ptt;
       res.json({ success: true });
