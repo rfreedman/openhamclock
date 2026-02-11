@@ -12,6 +12,7 @@ import {
 } from '../utils/geo.js';
 import { getBandColor } from '../utils/callsign.js';
 import { createTerminator } from '../utils/terminator.js';
+
 import { getAllLayers } from '../plugins/layerRegistry.js';
 import useLocalInstall from '../hooks/app/useLocalInstall.js';
 import { IconSatellite, IconTag, IconSun, IconMoon } from './Icons.jsx';
@@ -50,7 +51,6 @@ export const WorldMap = ({
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const tileLayerRef = useRef(null);
-  const nightTileLayerRef = useRef(null);
   const terminatorRef = useRef(null);
   const deMarkerRef = useRef(null);
   const dxMarkerRef = useRef(null);
@@ -67,12 +67,25 @@ export const WorldMap = ({
   const wsjtxMarkersRef = useRef([]);
   const countriesLayerRef = useRef(null);
   const dxLockedRef = useRef(dxLocked);
-  
 
   // Calculate grid locator from DE location for plugins
   const deLocator = useMemo(() => {
     if (!deLocation?.lat || !deLocation?.lon) return '';
     return calculateGridSquare(deLocation.lat, deLocation.lon);
+  }, [deLocation?.lat, deLocation?.lon]);
+
+  // Expose DE location to window for plugins (e.g., RBN)
+  useEffect(() => {
+    if (deLocation?.lat && deLocation?.lon) {
+      window.deLocation = {
+        lat: deLocation.lat,
+        lon: deLocation.lon
+      };
+    }
+    return () => {
+      // Cleanup on unmount
+      delete window.deLocation;
+    };
   }, [deLocation?.lat, deLocation?.lon]);
 
   // Keep dxLockedRef in sync with prop
@@ -98,14 +111,8 @@ export const WorldMap = ({
   const storedSettings = getStoredMapSettings();
   
   const [mapStyle, setMapStyle] = useState(storedSettings.mapStyle || 'dark');
-  
-  // NASA GIBS Night Lights (VIIRS)
-  const nightUrl = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/2012-03-12/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpg';
-  
   // GIBS MODIS CODE
   const [gibsOffset, setGibsOffset] = useState(0); 
-  // City lights intensity (range 0 to 1)
-  const [nightIntensity, setNightIntensity] = useState(0.8);
   
   const getGibsUrl = (days) => {
     const date = new Date(Date.now() - (days * 24 + 12) * 60 * 60 * 1000);
@@ -131,89 +138,65 @@ export const WorldMap = ({
     } catch (e) { console.error('Failed to save map settings:', e); }
   }, [mapStyle, mapView]);
 
+  // Initialize map
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+    
+    // Make sure Leaflet is available
+    if (typeof L === 'undefined') {
+      console.error('Leaflet not loaded');
+      return;
+    }
 
- // Initialize map
-	useEffect(() => {
-	// If map is already initialized, don't do it again
-	  if (mapInstanceRef.current) return;
-	  
-	  const L = window.L;
-	  if (typeof L === 'undefined') {
-		console.error('Leaflet not loaded');
-		return;
-	  }
+    const map = L.map(mapRef.current, {
+      center: mapView.center,
+      zoom: mapView.zoom,
+      minZoom: 1,
+      maxZoom: 18,
+      worldCopyJump: true,
+      zoomControl: true,
+      zoomSnap: 0.1,
+      zoomDelta: 0.25,
+      wheelPxPerZoomLevel: 200,
+      maxBounds: [[-90, -Infinity], [90, Infinity]],
+      maxBoundsViscosity: 0.8
+    });
 
-	  const map = L.map(mapRef.current, {
-		center: mapView.center,
-		zoom: mapView.zoom,
-		minZoom: 1,
-		maxZoom: 18,
-		worldCopyJump: true,
-		zoomControl: true,
-		zoomSnap: 0.1,
-		zoomDelta: 0.25,
-		wheelPxPerZoomLevel: 200,
-		maxBounds: [[-90, -Infinity], [90, Infinity]],
-		maxBoundsViscosity: 0.8
-	  });
+    // Initial tile layer
+    tileLayerRef.current = L.tileLayer(MAP_STYLES[mapStyle].url, {
+      attribution: MAP_STYLES[mapStyle].attribution,
+      noWrap: false,
+      crossOrigin: 'anonymous'
+    }).addTo(map);
 
-	  // --- night pane ---
-	  map.createPane('nightPane');
-	  const nightPane = map.getPane('nightPane');
-	  nightPane.style.zIndex = 650; // Keep it on the very top
-	  nightPane.style.pointerEvents = 'none'; 
-	  nightPane.id = 'night-lights-pane'; // Links to CSS for 'screen' blending
+    // Day/night terminator (custom implementation spans multiple world copies)
+    terminatorRef.current = createTerminator({
+      resolution: 2,
+      fillOpacity: 0.35,
+      fillColor: '#000020',
+      color: '#ffaa00',
+      weight: 2,
+      dashArray: '5, 5'
+    }).addTo(map);
 
-	  // Initial tile layer (Base Day Map)
-	  tileLayerRef.current = L.tileLayer(MAP_STYLES[mapStyle].url, {
-		attribution: MAP_STYLES[mapStyle].attribution,
-		noWrap: false,
-		crossOrigin: 'anonymous'
-	  }).addTo(map);
+    // Refresh terminator
+    setTimeout(() => {
+      if (terminatorRef.current) {
+        terminatorRef.current.setTime();
+      }
+    }, 100);
 
-	  // Add the Night Layer with your preferred brightness (nightIntensity)
-	  nightTileLayerRef.current = L.tileLayer(nightUrl, {
-		attribution: 'NASA GIBS',
-		noWrap: false,
-		pane: 'nightPane',
-		opacity: nightIntensity, // This applies your saved or default brightness when page reloaded
-		zIndex: 1
-	  }).addTo(map);
+    // Update terminator every minute
+    const terminatorInterval = setInterval(() => {
+      if (terminatorRef.current) {
+        terminatorRef.current.setTime();
+      }
+    }, 60000);
 
-	  // Day/night terminator
-	  terminatorRef.current = createTerminator({
-		resolution: 2,
-		fillOpacity: 0.1, 
-		fillColor: '#000010',
-		color: '#ffaa00',
-		weight: 2,
-		dashArray: '5, 5'
-	  }).addTo(map);
-
-	  // Refresh terminator immediately to set initial position
-	  setTimeout(() => {
-		if (terminatorRef.current) {
-		  terminatorRef.current.setTime();
-		  // Ensure the mask updates immediately after the first path is generated
-		  const path = terminatorRef.current.getElement();
-		  if (path) {
-			path.classList.add('terminator-path');
-		  }
-		}
-	  }, 100);
-
-	  const terminatorInterval = setInterval(() => {
-		if (terminatorRef.current) {
-		  terminatorRef.current.setTime();
-		  const path = terminatorRef.current.getElement();
-		  if (path) {
-			path.classList.add('terminator-path');
-		  }
-		}
-	  }, 60000);
-
+    // Click handler for setting DX (only if not locked)
     map.on('click', (e) => {
       if (onDXChange && !dxLockedRef.current) {
+        // Normalize longitude to -180 to 180 range (Leaflet can return values outside this range when map wraps)
         let lon = e.latlng.lng;
         while (lon > 180) lon -= 360;
         while (lon < -180) lon += 360;
@@ -221,6 +204,10 @@ export const WorldMap = ({
       }
     });
     
+    // Save map view when user pans or zooms
+    // IMPORTANT: Do NOT normalize longitude here. Leaflet tracks center beyond ±180 
+    // for smooth panning across the antimeridian (worldCopyJump). Normalizing causes
+    // the map to jump for users near the date line (Australia, NZ, Pacific).
     map.on('moveend', () => {
       const center = map.getCenter();
       const zoom = map.getZoom();
@@ -229,6 +216,7 @@ export const WorldMap = ({
 
     mapInstanceRef.current = map;
 
+    // ResizeObserver to handle panel resize/maximize in dockable layout
     const resizeObserver = new ResizeObserver(() => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.invalidateSize();
@@ -242,66 +230,39 @@ export const WorldMap = ({
       map.remove();
       mapInstanceRef.current = null;
     };
-  }, []); // Empty dependency array for initialization
+  }, []);
 
-  // Update tile layer and handle night light clipping
-
+  // Update tile layer when style changes
   useEffect(() => {
-    if (!mapInstanceRef.current || !tileLayerRef.current || !nightTileLayerRef.current) return;
-    const map = mapInstanceRef.current; // Define map reference
+    if (!mapInstanceRef.current || !tileLayerRef.current) return;
     
-    // 1. Base Map (Day)
+    mapInstanceRef.current.removeLayer(tileLayerRef.current);
+	// Determine the URL: Use the dynamic GIBS generator if 'MODIS' is selected
     let url = MAP_STYLES[mapStyle].url;
-    if (mapStyle === 'MODIS') { url = getGibsUrl(gibsOffset); }
-    tileLayerRef.current.setUrl(url);
-
-    // This clears the "map data not yet available" placeholders
-    map.invalidateSize({ animate: false }); 
-    tileLayerRef.current.redraw(); // Optional: forces a fresh download of the tiles
-    // ----------------------------------------------------------------
-
-    tileLayerRef.current.setOpacity(1.0);
-    tileLayerRef.current.setZIndex(10);
-
-    // 2. City Lights (Night Layer) - Using slider state
-	const finalOpacity = mapStyle === 'countries' ? 0 : nightIntensity;
-	nightTileLayerRef.current.setOpacity(finalOpacity);
-	nightTileLayerRef.current.setZIndex(600);
-
-    // 3. Terminator Shadow (Gray Line)
-    if (terminatorRef.current) {
-        terminatorRef.current.setStyle({
-            fillOpacity: 0.6, 
-            fillColor: '#000008',
-            color: '#ffaa00',
-            weight: 2
-        });
-        
-        if (typeof terminatorRef.current.bringToFront === 'function') {
-            terminatorRef.current.bringToFront();
-        }
+    if (mapStyle === 'MODIS') {
+      url = getGibsUrl(gibsOffset);
     }
 
-    // 4. Handle Clipping Mask
-    const updateMask = () => {
-      const nightPane = document.getElementById('night-lights-pane');
-      const terminatorPath = document.querySelector('.terminator-path');
-      
-      if (nightPane && terminatorPath) {
-        const pathData = terminatorPath.getAttribute('d');
-        if (pathData) {
-          nightPane.style.clipPath = `path('${pathData}')`;
-          nightPane.style.webkitClipPath = `path('${pathData}')`;
-        }
-      }
-    };
+    tileLayerRef.current = L.tileLayer(url, {
+      attribution: MAP_STYLES[mapStyle].attribution,
+      noWrap: false,
+      crossOrigin: 'anonymous',
+      // NASA GIBS tiles only cover -180..180; other tile providers wrap naturally
+      ...(mapStyle === 'MODIS' ? { bounds: [[-85, -180], [85, 180]] } : {})
+    }).addTo(mapInstanceRef.current);
 
-    updateMask();
-    const maskInterval = setInterval(updateMask, 3000); 
+    // Ensure terminator and other overlays stay on top of the new tile layer
+    if (terminatorRef.current) {
+      terminatorRef.current.bringToFront();
+    }
+    
+    // If you have a countries overlay, ensure it stays visible
+    if (countriesLayerRef.current) {
+      countriesLayerRef.current.bringToFront();
+    }
+  }, [mapStyle, gibsOffset]); // Added gibsOffset so the map refreshes when you move the slider
+    // End code dynamic GIBS generator if 'MODIS' is selecte
 
-    return () => clearInterval(maskInterval);
-}, [mapStyle, gibsOffset, nightIntensity]); // Added gibsOffset and night intensity so the map refreshes when you move the slider
- 
   // Countries overlay for "Countries" map style
   useEffect(() => {
     if (!mapInstanceRef.current) return;
@@ -817,6 +778,7 @@ export const WorldMap = ({
 
     if (showWSJTX && wsjtxSpots && wsjtxSpots.length > 0 && hasValidDE) {
       // Deduplicate by callsign - keep most recent
+      // For CQ: caller is the station. For QSO: dxCall is the remote station.
       const seen = new Map();
       wsjtxSpots.forEach(spot => {
         const call = spot.caller || spot.dxCall || '';
@@ -832,9 +794,11 @@ export const WorldMap = ({
         if (!isNaN(spotLat) && !isNaN(spotLon)) {
           const freqMHz = spot.dialFrequency ? (spot.dialFrequency / 1000000) : 0;
           const bandColor = freqMHz ? getBandColor(freqMHz) : '#a78bfa';
+          // Prefix-estimated locations get reduced opacity
+          const isEstimated = spot.gridSource === 'prefix';
 
           try {
-            // Draw line from DE to CQ caller
+            // Draw line from DE to decoded station
             const points = getGreatCirclePoints(
               deLocation.lat, deLocation.lon,
               spotLat, spotLon,
@@ -846,7 +810,7 @@ export const WorldMap = ({
               const line = L.polyline(points, {
                 color: '#a78bfa',
                 weight: 1.5,
-                opacity: 0.4,
+                opacity: isEstimated ? 0.15 : 0.4,
                 dashArray: '2, 6'
               }).addTo(map);
               wsjtxMarkersRef.current.push(line);
@@ -863,16 +827,16 @@ export const WorldMap = ({
                 html: `<div style="
                   width: 8px; height: 8px;
                   background: ${bandColor};
-                  border: 1px solid #fff;
+                  border: 1px solid ${isEstimated ? '#888' : '#fff'};
                   transform: rotate(45deg);
-                  opacity: 0.9;
+                  opacity: ${isEstimated ? 0.5 : 0.9};
                 "></div>`,
                 iconSize: [8, 8],
                 iconAnchor: [4, 4]
               })
             }).bindPopup(`
-              <b>${call}</b> CQ<br>
-              ${spot.grid || ''} ${spot.band || ''}<br>
+              <b>${call}</b> ${spot.type === 'CQ' ? 'CQ' : ''}<br>
+              ${spot.grid || ''} ${spot.band || ''}${spot.gridSource === 'prefix' ? ' <i>(est)</i>' : spot.gridSource === 'cache' ? ' <i>(prev)</i>' : ''}<br>
               ${spot.mode || ''} SNR: ${spot.snr != null ? (spot.snr >= 0 ? '+' : '') + spot.snr : '?'} dB
             `).addTo(map);
             wsjtxMarkersRef.current.push(diamond);
@@ -888,21 +852,22 @@ export const WorldMap = ({
     <div style={{ position: 'relative', height: '100%', minHeight: '200px' }}>
       <div ref={mapRef} style={{ height: '100%', width: '100%', borderRadius: '8px', background: mapStyle === 'countries' ? '#4a90d9' : undefined }} />
 
-      {mapInstanceRef.current && getAvailableLayers().map(layerDef => (
-        <PluginLayer
-          key={layerDef.id}
-          plugin={layerDef}
-          enabled={pluginLayerStates[layerDef.id]?.enabled ?? layerDef.defaultEnabled}
-          opacity={pluginLayerStates[layerDef.id]?.opacity ?? layerDef.defaultOpacity}
-          map={mapInstanceRef.current}
-          callsign={callsign}
-          locator={deLocator}
-          lowMemoryMode={lowMemoryMode}
-        />
-      ))}
-
-{/* MODIS & City Light Sliders */}
-      {mapStyle && (
+		{/* Render all plugin layers */}
+		{mapInstanceRef.current && getAvailableLayers().map(layerDef => (
+		  <PluginLayer
+		    key={layerDef.id}
+		    plugin={layerDef}
+		    // Use the exact metadata names as fallbacks
+		    enabled={pluginLayerStates[layerDef.id]?.enabled ?? layerDef.defaultEnabled}
+		    opacity={pluginLayerStates[layerDef.id]?.opacity ?? layerDef.defaultOpacity}
+		    map={mapInstanceRef.current}
+		    callsign={callsign}
+		    locator={deLocator}
+		    lowMemoryMode={lowMemoryMode}
+		  />
+		))}
+      //  MODIS SLIDER CODE HERE 
+      {mapStyle === 'MODIS' && (
         <div style={{
           position: 'absolute',
           top: '50px', 
@@ -915,37 +880,22 @@ export const WorldMap = ({
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '10px'
+          gap: '5px'
         }}>
-          {/* MODIS Control (Only shows when MODIS is active) */}
-          {mapStyle === 'MODIS' && (
-            <>
-              <div style={{ color: '#00ffcc', fontSize: '10px', fontFamily: 'JetBrains Mono' }}>
-                {gibsOffset === 0 ? 'LATEST IMAGERY' : `${gibsOffset} DAYS AGO`}
-              </div>
-              <input 
-                type="range" min="0" max="7" value={gibsOffset} 
-                onChange={(e) => setGibsOffset(parseInt(e.target.value))}
-                style={{ cursor: 'pointer', width: '100px' }}
-              />
-              <div style={{ width: '100%', borderTop: '1px solid #333', margin: '5px 0' }} />
-            </>
-          )}
-
-          {/* City Light Intensity Control */}
-          <div style={{ color: '#ffaa00', fontSize: '10px', fontFamily: 'JetBrains Mono' }}>
-            NIGHT LIGHTS: {Math.round(nightIntensity * 100)}%
+          <div style={{ color: '#00ffcc', fontSize: '10px', fontFamily: 'JetBrains Mono' }}>
+            {gibsOffset === 0 ? 'LATEST' : `${gibsOffset} DAYS AGO`}
           </div>
           <input 
-            type="range" min="0" max="1" step="0.05" 
-            value={nightIntensity} 
-            onChange={(e) => setNightIntensity(parseFloat(e.target.value))}
+            type="range" 
+            min="0" 
+            max="7" 
+            value={gibsOffset} 
+            onChange={(e) => setGibsOffset(parseInt(e.target.value))}
             style={{ cursor: 'pointer', width: '100px' }}
           />
         </div>
-      )}
-      {/* End MODIS SLIDER CODE */}
-	  
+      )} 
+      // End MODIS SLIDER CODE
       {/* Map style dropdown */}
       <select
         value={mapStyle}
