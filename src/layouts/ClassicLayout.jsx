@@ -288,7 +288,8 @@ export default function ClassicLayout(props) {
             hoveredSpot={hoveredSpot}
             callsign={config.callsign}
             lowMemoryMode={config.lowMemoryMode}
-          units={config.units}
+            units={config.units}
+            mouseZoom={config.mouseZoom}
           />
 
           {/* Settings button overlay */}
@@ -528,7 +529,8 @@ export default function ClassicLayout(props) {
             hideOverlays={true}
             callsign={config.callsign}
             lowMemoryMode={config.lowMemoryMode}
-          units={config.units}
+            units={config.units}
+            mouseZoom={config.mouseZoom}
           />
           {/* DX Lock button overlay */}
           <button
@@ -904,7 +906,8 @@ export default function ClassicLayout(props) {
             hideOverlays={true}
             callsign={config.callsign}
             lowMemoryMode={config.lowMemoryMode}
-          units={config.units}
+            units={config.units}
+            mouseZoom={config.mouseZoom}
           />
           <div style={{
             position: 'absolute',
