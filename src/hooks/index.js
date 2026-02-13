@@ -21,4 +21,3 @@ export { usePSKReporter } from './usePSKReporter.js';
 export { useWSJTX } from './useWSJTX.js';
 export { useAmbientWeather } from './useAmbientWeather.js';
 export { useBandHealth } from './useBandHealth.js';
-export { default as useRotator } from './useRotator.js';

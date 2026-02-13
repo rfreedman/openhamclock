@@ -4,14 +4,7 @@
  */
 import React from 'react';
 
-export const POTAPanel = ({
-  data,
-  loading,
-  showOnMap,
-  onToggleMap,
-  showLabelsOnMap = true,
-  onToggleLabelsOnMap,
-}) => {
+export const POTAPanel = ({ data, loading, showOnMap, onToggleMap }) => {
   return (
     <div className="panel" style={{ padding: '8px', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="panel-header" style={{ 
@@ -22,43 +15,22 @@ export const POTAPanel = ({
         fontSize: '11px'
       }}>
         <span>▲ POTA ACTIVATORS {data?.length > 0 ? `(${data.length})` : ''}</span>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          <button
-            onClick={onToggleMap}
-            title={showOnMap ? 'Hide POTA activators on map' : 'Show POTA activators on map'}
-            style={{
-              background: showOnMap ? 'rgba(68, 204, 68, 0.3)' : 'rgba(100, 100, 100, 0.3)',
-              border: `1px solid ${showOnMap ? '#44cc44' : '#666'}`,
-              color: showOnMap ? '#44cc44' : '#888',
-              padding: '1px 6px',
-              borderRadius: '3px',
-              fontSize: '9px',
-              fontFamily: 'JetBrains Mono',
-              cursor: 'pointer'
-            }}
-          >
-            ⊞ Map {showOnMap ? 'ON' : 'OFF'}
-          </button>
-
-          {typeof onToggleLabelsOnMap === 'function' && (
-            <button
-              onClick={onToggleLabelsOnMap}
-              title={showLabelsOnMap ? 'Hide POTA callsigns on map' : 'Show POTA callsigns on map'}
-              style={{
-                background: showLabelsOnMap ? 'rgba(255, 170, 0, 0.22)' : 'rgba(100, 100, 100, 0.3)',
-                border: `1px solid ${showLabelsOnMap ? '#ffaa00' : '#666'}`,
-                color: showLabelsOnMap ? '#ffaa00' : '#888',
-                padding: '1px 6px',
-                borderRadius: '3px',
-                fontSize: '9px',
-                fontFamily: 'JetBrains Mono',
-                cursor: 'pointer'
-              }}
-            >
-              ⊞ Calls {showLabelsOnMap ? 'ON' : 'OFF'}
-            </button>
-          )}
-        </div>
+        <button
+          onClick={onToggleMap}
+          title={showOnMap ? 'Hide POTA activators on map' : 'Show POTA activators on map'}
+          style={{
+            background: showOnMap ? 'rgba(68, 204, 68, 0.3)' : 'rgba(100, 100, 100, 0.3)',
+            border: `1px solid ${showOnMap ? '#44cc44' : '#666'}`,
+            color: showOnMap ? '#44cc44' : '#888',
+            padding: '1px 6px',
+            borderRadius: '3px',
+            fontSize: '9px',
+            fontFamily: 'JetBrains Mono',
+            cursor: 'pointer'
+          }}
+        >
+          ⊞ Map {showOnMap ? 'ON' : 'OFF'}
+        </button>
       </div>
       
       <div style={{ flex: 1, overflowY: 'auto' }}>
