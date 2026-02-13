@@ -26,6 +26,7 @@ export default function useMapLayers() {
   const toggleDXPaths = useCallback(() => setMapLayers(prev => ({ ...prev, showDXPaths: !prev.showDXPaths })), []);
   const toggleDXLabels = useCallback(() => setMapLayers(prev => ({ ...prev, showDXLabels: !prev.showDXLabels })), []);
   const togglePOTA = useCallback(() => setMapLayers(prev => ({ ...prev, showPOTA: !prev.showPOTA })), []);
+  const toggleWWFF = useCallback(() => setMapLayers(prev => ({ ...prev, showWWFF: !prev.showWWFF })), []);
   const toggleSOTA = useCallback(() => setMapLayers(prev => ({ ...prev, showSOTA: !prev.showSOTA })), []);
   const toggleSatellites = useCallback(() => setMapLayers(prev => ({ ...prev, showSatellites: !prev.showSatellites })), []);
   const togglePSKReporter = useCallback(() => setMapLayers(prev => ({ ...prev, showPSKReporter: !prev.showPSKReporter })), []);
@@ -38,6 +39,7 @@ export default function useMapLayers() {
     toggleDXPaths,
     toggleDXLabels,
     togglePOTA,
+    toggleWWFF,
     toggleSOTA,
     toggleSatellites,
     togglePSKReporter,
