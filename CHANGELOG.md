@@ -2,6 +2,24 @@
 
 All notable changes to OpenHamClock will be documented in this file.
 
+## [15.2.12] - 2026-02-12
+
+### Fixed
+- **Critical memory leak (OOM at 4GB after ~24h)** — Multiple unbounded data structures in the PSK-MQTT proxy caused heap exhaustion:
+  - `recentSpots` had no cap on insert — spots were `.push()`ed with no limit, only trimmed to 500 every 5 minutes. With 1000+ subscribed callsigns, hundreds of thousands of spots accumulated between cleanups. Now capped at 200 per callsign at insert time.
+  - `recentSpots` and `spotBuffer` entries were never cleaned up when callsigns unsubscribed — every callsign that disconnected left behind up to 500 spots for up to 1 hour. Over 24 hours with thousands of unique visitors, this accumulated hundreds of MB of orphaned spot data. Now deleted immediately on unsubscribe.
+  - `spotBuffer` entries for unsubscribed callsigns were never cleaned in the 5-minute cleanup cycle (flush only iterated `subscribers`, not `spotBuffer`). Now cleaned.
+  - `mySpotsCache` (HamQTH spot lookups) grew forever with no eviction. Now cleaned every 2 minutes.
+  - Removed dead `pskReporterSpots` cache (tx/rx Maps with cleanup timer) that was never written to
+- **Added memory monitoring** — Logs RSS, heap usage, and data structure sizes every 15 minutes for leak detection
+- **Set explicit Node.js heap limit** (1GB) in Dockerfile to fail fast on leaks instead of slow-dying at 4GB
+- **Double SSE connection eliminated** — `PSKReporterPanel` was calling `usePSKReporter()` internally while `App.jsx` already had one open for the same callsign. Every user opened 2 SSE connections. Now the panel receives data as a prop from the single app-level hook, halving SSE traffic and server memory.
+- **MQTT connack timeout crash** — `removeAllListeners()` during client teardown stripped the error handler; when the old client later emitted `connack timeout`, Node.js crashed on the unhandled error event. Now re-attaches a no-op error handler after stripping listeners. Added global `uncaughtException` handler as safety net.
+- **SSE flush interval** increased from 10s to 15s to reduce network egress
+- **Solar image disappearing after ~20 minutes** — `onError` handler permanently hid the `<img>` element with `display: none` on any load failure, with no retry or recovery. A single transient network blip would make the image vanish until page refresh. Also, the cache-buster timestamp was computed once at render time and never updated, so the image URL went stale. Now uses React state with a 15-minute refresh interval, shows a "Retrying..." placeholder on error, and auto-retries after 30 seconds.
+- **DX Lock / Settings buttons hidden or overlapping in Classic and Tablet layouts** — Buttons were positioned at `top: 10px` with hardcoded `left` values that collided with WorldMap's built-in SAT and CALLS toggle buttons. Classic layout also lacked `zIndex`, causing Leaflet to render over them. Moved both buttons to bottom-left of map in a flex group (Classic) or standalone (Tablet), avoiding all conflicts with WorldMap's top-row controls.
+- **Pi kiosk update fix** — `update.sh` with `git stash --include-untracked` was swallowing Pi helper scripts (`kiosk.sh`, `start.sh`, `stop.sh`, etc.) that live in the repo root but aren't tracked by git. The stash was never popped, so the scripts vanished after update, breaking kiosk auto-start on reboot. Now preserves and restores these scripts across the update. Also added them to `.gitignore` so git never treats them as untracked files.
+
 ## [15.2.11] - 2026-02-11
 
 ### Added

@@ -16,6 +16,7 @@ import {
   SolarPanel,
   PropagationPanel,
   BandHealthPanel,
+  RotatorPanel,
   DXpeditionPanel,
   PSKReporterPanel,
   WeatherPanel,
@@ -27,6 +28,8 @@ import {
 import { loadLayout, saveLayout, DEFAULT_LAYOUT } from './store/layoutStore.js';
 import { DockableLayoutProvider } from './contexts';
 import './styles/flexlayout-openhamclock.css';
+import useMapLayers from './hooks/app/useMapLayers';
+import useRotator from "./hooks/useRotator";
 
 // Icons
 const PlusIcon = () => (
@@ -89,10 +92,12 @@ export const DockableApp = ({
   toggleDXPaths,
   toggleDXLabels,
   togglePOTA,
+  togglePOTALabels,
   toggleSOTA,
   toggleSatellites,
   togglePSKReporter,
   toggleWSJTX,
+  toggleRotatorBearing,
   hoveredSpot,
   setHoveredSpot,
 
@@ -117,6 +122,26 @@ export const DockableApp = ({
   const [showPanelPicker, setShowPanelPicker] = useState(false);
   const [targetTabSetId, setTargetTabSetId] = useState(null);
   const saveTimeoutRef = useRef(null);
+
+  // Fallback: if parent did not provide map-layer toggles (seen with rotator),
+  // use the internal hook so the map buttons still work.
+  const internalMap = useMapLayers();
+
+  const useInternalMapLayers =
+    typeof toggleRotatorBearing !== 'function' ||
+    typeof toggleDXPaths !== 'function' ||
+    typeof toggleDXLabels !== 'function' ||
+    typeof toggleSatellites !== 'function';
+
+  const mapLayersEff = useInternalMapLayers ? internalMap.mapLayers : mapLayers;
+  const toggleDXPathsEff = useInternalMapLayers ? internalMap.toggleDXPaths : toggleDXPaths;
+  const toggleDXLabelsEff = useInternalMapLayers ? internalMap.toggleDXLabels : toggleDXLabels;
+  const togglePOTAEff = useInternalMapLayers ? internalMap.togglePOTA : togglePOTA;
+  const togglePOTALabelsEff = useInternalMapLayers ? internalMap.togglePOTALabels : togglePOTALabels;
+  const toggleSatellitesEff = useInternalMapLayers ? internalMap.toggleSatellites : toggleSatellites;
+  const togglePSKReporterEff = useInternalMapLayers ? internalMap.togglePSKReporter : togglePSKReporter;
+  const toggleWSJTXEff = useInternalMapLayers ? internalMap.toggleWSJTX : toggleWSJTX;
+  const toggleRotatorBearingEff = useInternalMapLayers ? internalMap.toggleRotatorBearing : toggleRotatorBearing;
 
   // Per-panel zoom levels (persisted)
   const [panelZoom, setPanelZoom] = useState(() => {
@@ -168,30 +193,40 @@ export const DockableApp = ({
   }, []);
 
   // Panel definitions
-  const panelDefs = useMemo(() => ({
-    'world-map': { name: 'World Map', icon: '🗺️' },
-    'de-location': { name: 'DE Location', icon: '📍' },
-    'dx-location': { name: 'DX Target', icon: '🎯' },
-    'analog-clock': { name: 'Analog Clock', icon: '🕐' },
-    'solar': { name: 'Solar (all views)', icon: '☀️' },
-    'solar-image': { name: 'Solar Image', icon: '☀️', group: 'Solar' },
-    'solar-indices': { name: 'Solar Indices', icon: '📊', group: 'Solar' },
-    'solar-xray': { name: 'X-Ray Flux', icon: '⚡', group: 'Solar' },
-    'lunar': { name: 'Lunar Phase', icon: '🌙', group: 'Solar' },
-    'propagation': { name: 'Propagation (all views)', icon: '📡' },
-    'propagation-chart': { name: 'VOACAP Chart', icon: '📈', group: 'Propagation' },
-    'propagation-bars': { name: 'VOACAP Bars', icon: '📊', group: 'Propagation' },
-    'band-conditions': { name: 'Band Conditions', icon: '📶', group: 'Propagation' },
-    'band-health': { name: 'Band Health', icon: '📶' },
-    'dx-cluster': { name: 'DX Cluster', icon: '📻' },
-    'psk-reporter': { name: 'PSK Reporter', icon: '📡' },
-    'dxpeditions': { name: 'DXpeditions', icon: '🏝️' },
-    'pota': { name: 'POTA', icon: '🏕️' },
-    'sota': { name: 'SOTA', icon: '⛰️' },
-    'contests': { name: 'Contests', icon: '🏆' },
-    'ambient': { name: 'Ambient Weather', icon: '🌦️' },
-    'id-timer': { name: 'ID Timer', icon: '📢' },
-  }), []);
+  const panelDefs = useMemo(() => {
+    // Only show Ambient Weather when credentials are configured
+    const hasAmbient = (() => {
+      try {
+        return !!(import.meta.env?.VITE_AMBIENT_API_KEY && import.meta.env?.VITE_AMBIENT_APPLICATION_KEY);
+      } catch { return false; }
+    })();
+
+    return {
+      'world-map': { name: 'World Map', icon: '🗺️' },
+      'de-location': { name: 'DE Location', icon: '📍' },
+      'dx-location': { name: 'DX Target', icon: '🎯' },
+      'analog-clock': { name: 'Analog Clock', icon: '🕐' },
+      'solar': { name: 'Solar (all views)', icon: '☀️' },
+      'solar-image': { name: 'Solar Image', icon: '☀️', group: 'Solar' },
+      'solar-indices': { name: 'Solar Indices', icon: '📊', group: 'Solar' },
+      'solar-xray': { name: 'X-Ray Flux', icon: '⚡', group: 'Solar' },
+      'lunar': { name: 'Lunar Phase', icon: '🌙', group: 'Solar' },
+      'propagation': { name: 'Propagation (all views)', icon: '📡' },
+      'propagation-chart': { name: 'VOACAP Chart', icon: '📈', group: 'Propagation' },
+      'propagation-bars': { name: 'VOACAP Bars', icon: '📊', group: 'Propagation' },
+      'band-conditions': { name: 'Band Conditions', icon: '📶', group: 'Propagation' },
+      'band-health': { name: 'Band Health', icon: '📶' },
+      'dx-cluster': { name: 'DX Cluster', icon: '📻' },
+      'psk-reporter': { name: 'PSK Reporter', icon: '📡' },
+      'dxpeditions': { name: 'DXpeditions', icon: '🏝️' },
+      'pota': { name: 'POTA', icon: '🏕️' },
+      'sota': { name: 'SOTA', icon: '⛰️' },
+      'rotator': { name: 'Rotator', icon: '🧭' },
+      'contests': { name: 'Contests', icon: '🏆' },
+      ...(hasAmbient ? { 'ambient': { name: 'Ambient Weather', icon: '🌦️' } } : {}),
+      'id-timer': { name: 'ID Timer', icon: '📢' },
+    };
+  }, []);
 
   // Add panel
   const handleAddPanel = useCallback((panelId) => {
@@ -275,6 +310,34 @@ export const DockableApp = ({
     </div>
   );
 
+  const rot = useRotator({
+  mock: false,
+  endpointUrl: "/api/rotator/status",
+  pollMs: 1000,
+  staleMs: 5000,
+});
+  const turnRotator = useCallback(async (azimuth) => {
+    const res = await fetch("/api/rotator/turn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ azimuth }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }, []);
+
+  const stopRotator = useCallback(async () => {
+    const res = await fetch("/api/rotator/stop", { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }, []);
+  
   // Render World Map
   const renderWorldMap = () => (
     <div style={{ height: '100%', width: '100%', position: 'relative' }}>
@@ -283,6 +346,7 @@ export const DockableApp = ({
         dxLocation={dxLocation}
         onDXChange={handleDXChange}
         dxLocked={dxLocked}
+
         potaSpots={potaSpots.data}
         sotaSpots={sotaSpots.data}
         mySpots={mySpots.data}
@@ -290,17 +354,32 @@ export const DockableApp = ({
         dxFilters={dxFilters}
         satellites={filteredSatellites}
         pskReporterSpots={filteredPskSpots}
-        showDXPaths={mapLayers.showDXPaths}
-        showDXLabels={mapLayers.showDXLabels}
-        onToggleDXLabels={toggleDXLabels}
-        showPOTA={mapLayers.showPOTA}
-        showSOTA={mapLayers.showSOTA}
-        showSatellites={mapLayers.showSatellites}
-        showPSKReporter={mapLayers.showPSKReporter}
         wsjtxSpots={wsjtxMapSpots}
-        showWSJTX={mapLayers.showWSJTX}
-        showDXNews={mapLayers.showDXNews}
-        onToggleSatellites={toggleSatellites}
+
+        showDXPaths={mapLayersEff.showDXPaths}
+        showDXLabels={mapLayersEff.showDXLabels}
+        onToggleDXLabels={mapLayersEff.showDXPaths ? toggleDXLabelsEff : undefined}
+
+        showPOTA={mapLayersEff.showPOTA}
+        showPOTALabels={mapLayersEff.showPOTALabels}
+
+        showSOTA={mapLayersEff.showSOTA}
+
+        showSatellites={mapLayersEff.showSatellites}
+        onToggleSatellites={toggleSatellitesEff}
+
+        showPSKReporter={mapLayersEff.showPSKReporter}
+        showWSJTX={mapLayersEff.showWSJTX}
+        showDXNews={mapLayersEff.showDXNews}
+
+        // ✅ Rotator bearing overlay support
+        showRotatorBearing={mapLayersEff.showRotatorBearing}
+        rotatorAzimuth={rot.azimuth}
+        rotatorLastGoodAzimuth={rot.lastGoodAzimuth}
+        rotatorIsStale={rot.isStale}
+        rotatorControlEnabled={!rot.isStale}
+        onRotatorTurnRequest={turnRotator}
+
         hoveredSpot={hoveredSpot}
         leftSidebarVisible={true}
         rightSidebarVisible={true}
@@ -311,6 +390,7 @@ export const DockableApp = ({
       />
     </div>
   );
+
 
   // Factory for rendering panel content
   const factory = useCallback((node) => {
@@ -395,8 +475,8 @@ export const DockableApp = ({
               }
             }}
             hoveredSpot={hoveredSpot}
-            showOnMap={mapLayers.showDXPaths}
-            onToggleMap={toggleDXPaths}
+            showOnMap={mapLayersEff.showDXPaths}
+            onToggleMap={toggleDXPathsEff}
           />
         );
         break;
@@ -405,8 +485,9 @@ export const DockableApp = ({
         content = (
           <PSKReporterPanel
             callsign={config.callsign}
-            showOnMap={mapLayers.showPSKReporter}
-            onToggleMap={togglePSKReporter}
+            pskReporter={pskReporter}
+            showOnMap={mapLayersEff.showPSKReporter}
+            onToggleMap={togglePSKReporterEff}
             filters={pskFilters}
             onOpenFilters={() => setShowPSKFilters(true)}
             onShowOnMap={(report) => {
@@ -424,8 +505,8 @@ export const DockableApp = ({
             wsjtxRelayEnabled={wsjtx.relayEnabled}
             wsjtxRelayConnected={wsjtx.relayConnected}
             wsjtxSessionId={wsjtx.sessionId}
-            showWSJTXOnMap={mapLayers.showWSJTX}
-            onToggleWSJTXMap={toggleWSJTX}
+            showWSJTXOnMap={mapLayersEff.showWSJTX}
+            onToggleWSJTXMap={toggleWSJTXEff}
           />
         );
         break;
@@ -435,7 +516,17 @@ export const DockableApp = ({
         break;
 
       case 'pota':
-        content = <POTAPanel data={potaSpots.data} loading={potaSpots.loading} showOnMap={mapLayers.showPOTA} onToggleMap={togglePOTA} />;
+        content = (
+          <POTAPanel
+            data={potaSpots.data}
+            loading={potaSpots.loading}
+            showOnMap={mapLayersEff.showPOTA}
+            onToggleMap={togglePOTAEff}
+
+            showLabelsOnMap={mapLayersEff.showPOTALabels}
+            onToggleLabelsOnMap={togglePOTALabelsEff}
+          />
+        );
         break;
 
       case 'sota':
@@ -445,7 +536,21 @@ export const DockableApp = ({
       case 'contests':
         content = <ContestPanel data={contests.data} loading={contests.loading} />;
         break;
+      
+      case "rotator":
+        return (
+          <RotatorPanel
+            state={rot}
+            overlayEnabled={mapLayersEff.showRotatorBearing}
+            onToggleOverlay={toggleRotatorBearingEff}
 
+            onTurnAzimuth={turnRotator}
+            onStop={stopRotator}
+            controlsEnabled={!rot.isStale}
+          />
+        );
+
+       
       case 'ambient':
         content = (
           <AmbientPanel
@@ -457,7 +562,7 @@ export const DockableApp = ({
             nodeId={nodeId}
           />
         );
-        break;
+        break; 
 
       case 'id-timer':
         content = <IDTimerPanel callsign={config.callsign} />;
@@ -574,6 +679,8 @@ export const DockableApp = ({
           localDate={localDate}
           localWeather={localWeather}
           spaceWeather={spaceWeather}
+          solarIndices={solarIndices}
+          bandConditions={bandConditions}
           use12Hour={use12Hour}
           onTimeFormatToggle={handleTimeFormatToggle}
           onSettingsClick={() => setShowSettings(true)}
@@ -675,6 +782,5 @@ export const DockableApp = ({
       )}
     </div>
   );
-};
-
+}
 export default DockableApp;

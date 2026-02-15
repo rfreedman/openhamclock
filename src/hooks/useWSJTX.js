@@ -8,6 +8,8 @@
  * Each browser gets a unique session ID so relay data is per-user.
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useVisibilityRefresh } from './useVisibilityRefresh';
+import { apiFetch } from '../utils/apiFetch';
 
 const POLL_INTERVAL = 2000; // Poll every 2 seconds for near-real-time feel
 const API_URL = '/api/wsjtx';
@@ -21,7 +23,9 @@ function getSessionId() {
   const generate = () => Math.random().toString(36).substring(2, 10);
   try {
     let id = localStorage.getItem(KEY);
-    if (id && id.length >= 8) return id;
+    // Must be 8-12 chars alphanumeric — reject old UUIDs (36 chars with dashes)
+    // which trigger Bitdefender false positives as "tracking tokens"
+    if (id && id.length >= 8 && id.length <= 12 && /^[a-z0-9]+$/.test(id)) return id;
     id = generate();
     localStorage.setItem(KEY, id);
     return id;
@@ -46,17 +50,26 @@ export function useWSJTX(enabled = true) {
   const [error, setError] = useState(null);
   const lastTimestamp = useRef(0);
   const fullFetchCounter = useRef(0);
+  const backoffUntil = useRef(0); // Rate-limit backoff timestamp
 
   // Lightweight poll - just new decodes since last check
   const pollDecodes = useCallback(async () => {
     if (!enabled) return;
+    // Skip if we're in a rate-limit backoff window
+    if (Date.now() < backoffUntil.current) return;
     try {
       const base = lastTimestamp.current 
         ? `${DECODES_URL}?since=${lastTimestamp.current}`
         : DECODES_URL;
       const sep = base.includes('?') ? '&' : '?';
       const url = `${base}${sep}session=${sessionId}`;
-      const res = await fetch(url);
+      const res = await apiFetch(url);
+      if (!res) return; // backed off globally
+      if (res.status === 429) {
+        // Back off for 30 seconds on rate limit
+        backoffUntil.current = Date.now() + 30000;
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       
@@ -82,8 +95,15 @@ export function useWSJTX(enabled = true) {
   // Full fetch - get everything including status, QSOs, clients
   const fetchFull = useCallback(async () => {
     if (!enabled) return;
+    // Skip if we're in a rate-limit backoff window
+    if (Date.now() < backoffUntil.current) return;
     try {
-      const res = await fetch(`${API_URL}?session=${sessionId}`);
+      const res = await apiFetch(`${API_URL}?session=${sessionId}`);
+      if (!res) return; // backed off globally
+      if (res.status === 429) {
+        backoffUntil.current = Date.now() + 30000;
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setData(json);
@@ -117,6 +137,9 @@ export function useWSJTX(enabled = true) {
     
     return () => clearInterval(interval);
   }, [enabled, fetchFull, pollDecodes]);
+
+  // Refresh immediately when tab becomes visible (handles browser throttling)
+  useVisibilityRefresh(() => { if (enabled) fetchFull(); }, 5000);
 
   return {
     ...data,

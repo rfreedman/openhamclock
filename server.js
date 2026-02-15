@@ -19,6 +19,8 @@
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fetch = require('node-fetch');
 const net = require('net');
@@ -34,6 +36,21 @@ const APP_VERSION = (() => {
     return pkg.version || '0.0.0';
   } catch { return '0.0.0'; }
 })();
+
+// Global safety nets — log but don't crash on stray errors (e.g. MQTT connack timeout)
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL] Uncaught exception: ${err.message}`);
+  console.error(err.stack);
+  // Exit on truly fatal errors, but give time to flush logs
+  setTimeout(() => process.exit(1), 1000);
+});
+process.on('unhandledRejection', (reason) => {
+  // AbortErrors are benign — just fetch timeouts firing after the request context ended
+  if (reason && (reason.name === 'AbortError' || (typeof reason === 'string' && reason.includes('AbortError')))) {
+    return; // Silently ignore — these are expected during upstream slowdowns
+  }
+  console.error(`[WARN] Unhandled rejection: ${reason}`);
+});
 
 // Auto-create .env from .env.example on first run
 const envPath = path.join(__dirname, '.env');
@@ -53,8 +70,8 @@ if (fs.existsSync(envPath)) {
     if (trimmed && !trimmed.startsWith('#')) {
       const [key, ...valueParts] = trimmed.split('=');
       const value = valueParts.join('=');
-      if (key && value !== undefined && !process.env[key]) {
-        process.env[key] = value;
+      if (key && value !== undefined) {
+        process.env[key] = value.trim();
       }
     }
   });
@@ -62,8 +79,25 @@ if (fs.existsSync(envPath)) {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
+
+// Trust first proxy (Railway, Docker, nginx, etc.) so rate limiting
+// uses X-Forwarded-For (real client IP) instead of the proxy's IP.
+// Without this, ALL users behind a reverse proxy share one rate limit bucket.
+app.set('trust proxy', 1);
+
+// Security: API key for write operations (set in .env to protect POST endpoints)
+// If not set, write endpoints are open (backward-compatible for local installs)
+const API_WRITE_KEY = process.env.API_WRITE_KEY || '';
+
+// Helper: check write auth on POST endpoints that modify server state
+function requireWriteAuth(req, res, next) {
+  if (!API_WRITE_KEY) return next(); // No key configured = open (local installs)
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.key || '';
+  if (token === API_WRITE_KEY) return next();
+  return res.status(401).json({ error: 'Unauthorized — set Authorization: Bearer <API_WRITE_KEY>' });
+}
 
 // ============================================
 // UPSTREAM REQUEST MANAGER
@@ -327,9 +361,48 @@ if (ITURHFPROP_URL) {
   console.log('[Propagation] Standalone mode - using built-in calculations');
 }
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Middleware — Security
+app.use(helmet({
+  contentSecurityPolicy: false, // CSP breaks inline Leaflet/React scripts
+  crossOriginEmbedderPolicy: false // Breaks tile loading from CDNs
+}));
+
+// CORS — restrict to same origin by default; allow override via env
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : true; // true = reflect request origin (same as before for local installs)
+app.use(cors({
+  origin: CORS_ORIGINS,
+  methods: ['GET', 'POST'],
+  maxAge: 86400
+}));
+
+// Rate limiting — protect against abuse
+// NOTE: OpenHamClock is a real-time dashboard that polls many endpoints every few seconds
+// per connected client, so the general limit must be generous for normal operation.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 1800, // 1800 requests per minute per IP (30/sec)
+  // A single OHC tab generates ~40-50 req/min steady state (WSJT-X 2s polling = 30/min alone).
+  // Tab-switch visibility refresh adds bursts of ~8 requests.
+  // Multiple tabs, multiple users on LAN behind NAT all share one IP.
+  // 1800/min = 30/sec gives comfortable headroom for 10+ concurrent tabs.
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' }
+});
+app.use('/api/', apiLimiter);
+
+// Stricter rate limit for write/expensive endpoints
+const writeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests' }
+});
+
+app.use(express.json({ limit: '1mb' })); // Limit body size to prevent DoS
 
 // GZIP compression - reduces response sizes by 70-90%
 // This is critical for reducing bandwidth/egress costs
@@ -358,7 +431,11 @@ app.use('/api', (req, res, next) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return next();
   }
-  
+  // Rotator status must always be fresh
+  if (req.path.includes('/rotator')) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return next();
+  }
   // Determine cache duration based on endpoint
   let cacheDuration = 30; // Default: 30 seconds
   
@@ -412,6 +489,9 @@ const errorLogState = {};
 const ERROR_LOG_INTERVAL = 5 * 60 * 1000; // Only log same error once per 5 minutes
 
 function logErrorOnce(category, message) {
+  // Suppress AbortError messages — these are just fetch timeouts, not real errors
+  if (message && (message.includes('aborted') || message.includes('AbortError'))) return false;
+  
   const key = `${category}:${message}`;
   const now = Date.now();
   const lastLogged = errorLogState[key] || 0;
@@ -533,6 +613,217 @@ app.use('/api', (req, res, next) => {
   });
   
   next();
+});
+// ============================================
+// ROTATOR BRIDGE (PstRotatorAz UDP Provider)
+// Exposes a stable REST API for the frontend.
+// Provider can be swapped later (hamlib/gs232/etc).
+//
+// Env:
+//   ROTATOR_PROVIDER=pstrotator_udp | none
+//   PSTROTATOR_HOST=192.168.1.43
+//   PSTROTATOR_UDP_PORT=12000
+//   ROTATOR_STALE_MS=5000
+// ============================================
+
+const ROTATOR_PROVIDER = (process.env.ROTATOR_PROVIDER || 'pstrotator_udp').toLowerCase();
+const PSTROTATOR_HOST = process.env.PSTROTATOR_HOST || '192.168.1.43';
+const PSTROTATOR_UDP_PORT = parseInt(process.env.PSTROTATOR_UDP_PORT || '12000', 10);
+const ROTATOR_STALE_MS = parseInt(process.env.ROTATOR_STALE_MS || '5000', 10);
+
+// PstRotatorAz replies to UDP port+1 at the sender's IP (per manual)
+const PSTROTATOR_REPLY_PORT = PSTROTATOR_UDP_PORT + 1;
+
+const rotatorState = {
+  azimuth: null,
+  lastSeen: 0,
+  source: ROTATOR_PROVIDER,
+  lastError: null,
+};
+
+function clampAz(v) {
+  let n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  // normalize to [0, 360)
+  n = ((n % 360) + 360) % 360;
+  return Math.round(n);
+}
+
+function parseAzimuthFromMessage(msgStr) {
+  // Expected examples:
+  //   "AZ:123"
+  //   "... AZ:123 ..."
+  const m = msgStr.match(/AZ\s*:\s*([0-9]{1,3})/i);
+  if (!m) return null;
+  const az = clampAz(parseInt(m[1], 10));
+  return az;
+}
+
+// A simple in-process "mutex" so we don't overlap UDP queries
+let rotatorInflight = Promise.resolve();
+
+let rotatorSocket = null;
+
+function ensureRotatorSocket() {
+  if (rotatorSocket) return rotatorSocket;
+
+  const sock = dgram.createSocket('udp4');
+
+  sock.on('error', (err) => {
+    rotatorState.lastError = String(err?.message || err);
+    // Don't crash server; just log once in a while
+    console.warn(`[Rotator] UDP socket error: ${rotatorState.lastError}`);
+  });
+
+  sock.on('message', (buf, rinfo) => {
+    const s = buf.toString('utf8').trim();
+
+    console.log(
+      `[Rotator] RX from ${rinfo.address}:${rinfo.port} -> "${s}"`
+    );
+
+    const az = parseAzimuthFromMessage(s);
+
+    if (az !== null) {
+      rotatorState.azimuth = az;
+      rotatorState.lastSeen = Date.now();
+      rotatorState.lastError = null;
+    }
+  });
+
+  // Bind to reply port so PstRotatorAz can send responses back
+  // NOTE: allow on all interfaces
+  sock.bind(PSTROTATOR_REPLY_PORT, '0.0.0.0', () => {
+    try {
+      sock.setRecvBufferSize?.(1024 * 1024);
+    } catch {}
+    console.log(`[Rotator] UDP listening on ${PSTROTATOR_REPLY_PORT} (provider=${ROTATOR_PROVIDER})`);
+  });
+
+  rotatorSocket = sock;
+  return rotatorSocket;
+}
+
+function udpSend(message) {
+  const sock = ensureRotatorSocket();     // this one is bound to 12001
+  const buf = Buffer.from(message, 'utf8');
+
+  return new Promise((resolve, reject) => {
+    sock.send(buf, 0, buf.length, PSTROTATOR_UDP_PORT, PSTROTATOR_HOST, (err) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+}
+
+async function queryAzimuthOnce(timeoutMs = 800) {
+  if (ROTATOR_PROVIDER === 'none') {
+    return { ok: false, reason: 'disabled' };
+  }
+
+  // Serialize UDP queries
+  rotatorInflight = rotatorInflight.then(async () => {
+    const before = Date.now();
+    try {
+      // Per manual: request azimuth
+      // <PST>AZ?</PST>
+      console.log(`[Rotator] TX query -> ${PSTROTATOR_HOST}:${PSTROTATOR_UDP_PORT}`);
+      await udpSend('<PST>AZ?</PST>');
+
+      // Wait until we see a fresh AZ update (or timeout)
+      while (Date.now() - before < timeoutMs) {
+        if (rotatorState.lastSeen >= before && rotatorState.azimuth !== null) {
+          return { ok: true, azimuth: rotatorState.azimuth };
+        }
+        await new Promise(r => setTimeout(r, 30));
+      }
+      return { ok: false, reason: 'timeout' };
+    } catch (e) {
+      rotatorState.lastError = String(e?.message || e);
+      return { ok: false, reason: rotatorState.lastError };
+    }
+  });
+
+  return rotatorInflight;
+}
+
+async function setAzimuth(az) {
+  if (ROTATOR_PROVIDER === 'none') return { ok: false, reason: 'disabled' };
+
+  const clamped = clampAz(az);
+  if (clamped === null) return { ok: false, reason: 'invalid azimuth' };
+
+  // Per manual: set azimuth
+  // <PST><AZIMUTH>85</AZIMUTH></PST>
+  await udpSend(`<PST><AZIMUTH>${clamped}</AZIMUTH></PST>`);
+  return { ok: true, target: clamped };
+}
+
+async function stopRotator() {
+  if (ROTATOR_PROVIDER === 'none') return { ok: false, reason: 'disabled' };
+
+  // Per manual: STOP command
+  await udpSend('<PST><STOP>1</STOP></PST>');
+  return { ok: true };
+}
+
+// --- REST API ---
+
+app.get('/api/rotator/status', async (req, res) => {
+  // Always fresh
+  console.log('[Rotator] /api/rotator/status hit');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+  // If we haven't seen an update recently, try to poll once
+  const now = Date.now();
+  const isLive = rotatorState.azimuth !== null && (now - rotatorState.lastSeen) <= ROTATOR_STALE_MS;
+
+  if (!isLive && ROTATOR_PROVIDER !== 'none') {
+    await queryAzimuthOnce(800);
+  }
+
+  const now2 = Date.now();
+  const live2 = rotatorState.azimuth !== null && (now2 - rotatorState.lastSeen) <= ROTATOR_STALE_MS;
+
+  res.json({
+    source: ROTATOR_PROVIDER,
+    live: live2,
+    azimuth: rotatorState.azimuth,
+    lastSeen: rotatorState.lastSeen || 0,
+    staleMs: ROTATOR_STALE_MS,
+    error: rotatorState.lastError,
+  });
+});
+
+app.post('/api/rotator/turn', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  try {
+    const { azimuth } = req.body || {};
+    const result = await setAzimuth(azimuth);
+
+    // Optionally query immediately so UI updates quickly
+    await queryAzimuthOnce(800);
+
+    res.json({
+      ok: result.ok,
+      target: result.target,
+      azimuth: rotatorState.azimuth,
+      live: rotatorState.azimuth !== null && (Date.now() - rotatorState.lastSeen) <= ROTATOR_STALE_MS,
+      error: result.ok ? null : result.reason,
+    });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+app.post('/api/rotator/stop', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  try {
+    const result = await stopRotator();
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
 });
 
 // ============================================
@@ -1084,6 +1375,22 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
+// Log memory usage every 15 minutes for leak detection
+setInterval(() => {
+  const mem = process.memoryUsage();
+  const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
+  const mqttStats = {
+    subscribers: pskMqtt.subscribers.size,
+    subscribedCalls: pskMqtt.subscribedCalls.size,
+    sseClients: [...pskMqtt.subscribers.values()].reduce((n, s) => n + s.size, 0),
+    recentSpotsEntries: pskMqtt.recentSpots.size,
+    recentSpotsTotal: [...pskMqtt.recentSpots.values()].reduce((n, s) => n + s.length, 0),
+    spotBufferEntries: pskMqtt.spotBuffer.size,
+    spotBufferTotal: [...pskMqtt.spotBuffer.values()].reduce((n, b) => n + b.length, 0),
+  };
+  console.log(`[Memory] RSS=${mb(mem.rss)}MB Heap=${mb(mem.heapUsed)}/${mb(mem.heapTotal)}MB External=${mb(mem.external)}MB | MQTT: ${mqttStats.sseClients} SSE clients, ${mqttStats.subscribedCalls} calls, ${mqttStats.recentSpotsTotal} recent spots (${mqttStats.recentSpotsEntries} entries), ${mqttStats.spotBufferTotal} buffered | GeoIP=${geoIPCache.size} MySpots=${mySpotsCache.size} AllTimeIPs=${allTimeIPSet.size}`);
+}, 15 * 60 * 1000);
+
 // ============================================
 // AUTO UPDATE (GIT)
 // ============================================
@@ -1220,8 +1527,12 @@ async function autoUpdateTick(trigger = 'interval', force = false) {
     logInfo('[Auto Update] Update complete');
 
     if (AUTO_UPDATE_EXIT_AFTER) {
-      logInfo('[Auto Update] Exiting to allow restart');
-      process.exit(0);
+      // Exit with code 75 (EX_TEMPFAIL) — a non-zero code that signals
+      // "restart me" to systemd's Restart=on-failure AND Restart=always.
+      // Previous versions used exit(0) which was clean/success, causing
+      // Restart=on-failure to NOT restart the service.
+      logInfo('[Auto Update] Restarting service (exit 75)...');
+      process.exit(75);
     }
   } catch (err) {
     autoUpdateState.lastResult = 'error';
@@ -1277,6 +1588,23 @@ const assetOptions = {
   maxAge: '1y', // Cache hashed assets for 1 year
   immutable: true
 };
+
+// Vendor CDN fallback — serves self-hosted fonts/Leaflet when available,
+// falls back to CDN redirect when vendor files haven't been downloaded yet.
+// Run: bash scripts/vendor-download.sh  to eliminate all external requests.
+const VENDOR_CDN_MAP = {
+  '/vendor/leaflet/leaflet.js': 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  '/vendor/leaflet/leaflet.css': 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  '/vendor/fonts/fonts.css': 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&display=swap',
+};
+
+app.use('/vendor', (req, res, next) => {
+  const localPath = path.join(publicDir, 'vendor', req.path);
+  if (fs.existsSync(localPath)) return next(); // Serve local file
+  const cdnUrl = VENDOR_CDN_MAP['/vendor' + req.path];
+  if (cdnUrl) return res.redirect(302, cdnUrl);
+  next(); // Unknown vendor file — let static handler 404
+});
 
 if (distExists) {
   // Serve built React app from dist/
@@ -2313,6 +2641,30 @@ app.get('/api/dxcluster/paths', async (req, res) => {
   const customPort = parseInt(req.query.port) || 7300;
   const userCallsign = req.query.callsign;
   
+  // SECURITY: Validate custom host to prevent SSRF (internal network scanning)
+  if (source === 'custom' && customHost) {
+    // Block private/reserved IP ranges and localhost
+    const blockedPatterns = /^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|0\.|0:|\[::1\]|::1|fe80:|fc00:|fd00:|ff00:)/i;
+    if (blockedPatterns.test(customHost)) {
+      return res.status(400).json({ error: 'Custom host cannot be a private/reserved address' });
+    }
+    // Block numeric-only hosts (raw IPs) that could be encoded to bypass above
+    // Only allow hostnames that look like legitimate DX Spider nodes
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(customHost)) {
+      const octets = customHost.split('.').map(Number);
+      if (octets[0] === 10 || octets[0] === 127 || octets[0] === 0 ||
+          (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+          (octets[0] === 192 && octets[1] === 168) ||
+          (octets[0] === 169 && octets[1] === 254)) {
+        return res.status(400).json({ error: 'Custom host cannot be a private/reserved address' });
+      }
+    }
+    // Restrict port range to common DX Spider/telnet ports
+    if (customPort < 1024 || customPort > 49151) {
+      return res.status(400).json({ error: 'Port must be between 1024 and 49151' });
+    }
+  }
+  
   // Generate cache key based on source (custom sources shouldn't share cache)
   const cacheKey = source === 'custom' ? `custom-${customHost}-${customPort}` : 'default';
   
@@ -2437,11 +2789,23 @@ app.get('/api/dxcluster/paths', async (req, res) => {
       return res.json(validPaths.slice(0, 50));
     }
     
-    // Get unique callsigns to look up
+    // Get unique callsigns to look up (sanitize and strip modifiers)
+    // 5Z4/OZ6ABL → OZ6ABL, UA1TAN/M → UA1TAN so lookups hit the home call
     const allCalls = new Set();
+    const baseCallMap = {}; // raw → base mapping for spot building
     newSpots.forEach(s => {
-      allCalls.add(s.spotter);
-      allCalls.add(s.dxCall);
+      const spotter = (s.spotter || '').replace(/[<>]/g, '').trim();
+      const dxCall = (s.dxCall || '').replace(/[<>]/g, '').trim();
+      if (spotter) {
+        const base = extractBaseCallsign(spotter);
+        allCalls.add(base);
+        baseCallMap[spotter] = base;
+      }
+      if (dxCall) {
+        const base = extractBaseCallsign(dxCall);
+        allCalls.add(base);
+        baseCallMap[dxCall] = base;
+      }
     });
     
     // Look up prefix-based locations for all callsigns (includes grid squares!)
@@ -2458,6 +2822,61 @@ app.get('/api/dxcluster/paths', async (req, res) => {
           grid: loc.grid || null,  // Include grid from prefix mapping!
           source: loc.grid ? 'prefix-grid' : 'prefix' 
         };
+      }
+    }
+    
+    // Check HamQTH callsign cache for better accuracy (24h TTL, populated by /api/callsign/:call)
+    // This gives DXCC-level lat/lon which is more accurate than prefix country centroids
+    const hamqthLocations = {};
+    const hamqthMisses = []; // Callsigns to look up in background
+    for (const call of callsToLookup) {
+      const cached = callsignLookupCache.get(call);
+      if (cached && (now - cached.timestamp) < CALLSIGN_CACHE_TTL && cached.data?.lat != null) {
+        hamqthLocations[call] = {
+          lat: cached.data.lat,
+          lon: cached.data.lon,
+          country: cached.data.country || '',
+          grid: cached.data.grid || null,
+          source: 'hamqth'
+        };
+      } else if (!prefixLocations[call]?.grid) {
+        // Only queue lookups for calls that don't already have grid-level accuracy
+        hamqthMisses.push(call);
+      }
+    }
+    
+    // Fire background HamQTH lookups for cache misses (non-blocking, improves next poll)
+    // Limit to 10 per cycle to avoid hammering HamQTH
+    if (hamqthMisses.length > 0) {
+      const batch = hamqthMisses.slice(0, 10);
+      logDebug('[DX Paths] Background HamQTH lookup for', batch.length, 'callsigns');
+      for (const rawCall of batch) {
+        // Sanitize and validate before hitting external API
+        const call = rawCall.replace(/[<>]/g, '').trim();
+        if (!call || !/^[A-Z0-9\/\-]{1,20}$/.test(call)) continue;
+        
+        // Fire-and-forget — results land in callsignLookupCache for next poll
+        fetch(`https://www.hamqth.com/dxcc.php?callsign=${encodeURIComponent(call)}`, {
+          headers: { 'User-Agent': 'OpenHamClock/' + APP_VERSION },
+          signal: AbortSignal.timeout(5000)
+        }).then(async (resp) => {
+          if (!resp.ok) return;
+          const text = await resp.text();
+          const latMatch = text.match(/<lat>([^<]+)<\/lat>/);
+          const lonMatch = text.match(/<lng>([^<]+)<\/lng>/);
+          const countryMatch = text.match(/<n>([^<]+)<\/name>/);
+          if (latMatch && lonMatch) {
+            callsignLookupCache.set(call, {
+              data: {
+                callsign: call,
+                lat: parseFloat(latMatch[1]),
+                lon: parseFloat(lonMatch[1]),
+                country: countryMatch ? countryMatch[1] : ''
+              },
+              timestamp: Date.now()
+            });
+          }
+        }).catch(() => {}); // Silent fail for background lookups
       }
     }
     
@@ -2489,9 +2908,14 @@ app.get('/api/dxcluster/paths', async (req, res) => {
           }
         }
         
+        // Fall back to HamQTH cached location (more accurate than prefix)
+        if (!dxLoc && hamqthLocations[baseCallMap[spot.dxCall] || spot.dxCall]) {
+          dxLoc = hamqthLocations[baseCallMap[spot.dxCall] || spot.dxCall];
+        }
+        
         // Fall back to prefix location (now includes grid-based coordinates!)
         if (!dxLoc) {
-          dxLoc = prefixLocations[spot.dxCall];
+          dxLoc = prefixLocations[baseCallMap[spot.dxCall] || spot.dxCall];
           if (dxLoc && dxLoc.grid) {
             dxGridSquare = dxLoc.grid;
           }
@@ -2522,9 +2946,14 @@ app.get('/api/dxcluster/paths', async (req, res) => {
           }
         }
         
+        // Fall back to HamQTH cached location for spotter
+        if (!spotterLoc && hamqthLocations[baseCallMap[spot.spotter] || spot.spotter]) {
+          spotterLoc = hamqthLocations[baseCallMap[spot.spotter] || spot.spotter];
+        }
+        
         // Fall back to prefix location for spotter (now includes grid-based coordinates!)
         if (!spotterLoc) {
-          spotterLoc = prefixLocations[spot.spotter];
+          spotterLoc = prefixLocations[baseCallMap[spot.spotter] || spot.spotter];
           if (spotterLoc && spotterLoc.grid) {
             spotterGridSquare = spotterLoc.grid;
           }
@@ -2601,61 +3030,422 @@ app.get('/api/dxcluster/paths', async (req, res) => {
 const callsignLookupCache = new Map(); // key = callsign, value = { data, timestamp }
 const CALLSIGN_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-// Simple callsign to grid/location lookup using HamQTH
+// ── Extract base callsign from decorated/portable calls ──
+// Strips prefixes (5Z4/OZ6ABL → OZ6ABL) and suffixes (UA1TAN/M → UA1TAN)
+// so lookups hit QRZ/HamQTH with the home callsign, not the operating indicator.
+//
+// Rules:
+//   UA1TAN/M, /P, /QRP, /MM, /AM, /R, /T  → UA1TAN  (known modifiers)
+//   W1ABC/6                                 → W1ABC   (US call area override)
+//   5Z4/OZ6ABL, DL/AA7BQ, VE3/W1ABC        → OZ6ABL, AA7BQ, W1ABC  (pick the home call)
+//
+// Heuristic: split on '/', pick the segment that looks most like a full callsign
+// (has digits AND letters, and is the longest non-modifier segment).
+function extractBaseCallsign(raw) {
+  if (!raw || typeof raw !== 'string') return raw || '';
+  const call = raw.toUpperCase().trim();
+  
+  if (!call.includes('/')) return call;
+  
+  const parts = call.split('/');
+  
+  // Known suffixes that are always modifiers (not callsigns)
+  const MODIFIERS = new Set([
+    'M', 'P', 'QRP', 'MM', 'AM', 'R', 'T', 'B', 'BCN',
+    'LH', 'A', 'E', 'J', 'AG', 'AE', 'KT'
+  ]);
+  
+  // Filter out known modifiers and single digits (call area overrides like /6)
+  const candidates = parts.filter(p => {
+    if (!p) return false;
+    if (MODIFIERS.has(p)) return false;
+    if (/^\d$/.test(p)) return false; // Single digit = call area
+    return true;
+  });
+  
+  if (candidates.length === 0) return parts[0] || call;
+  if (candidates.length === 1) return candidates[0];
+  
+  // Multiple candidates (e.g. "5Z4/OZ6ABL") — pick the one that looks most like a full callsign
+  // A full callsign has: prefix letters, digit(s), suffix letters (e.g. OZ6ABL, AA7BQ, W1ABC)
+  const callsignPattern = /^[A-Z]{1,3}\d{1,4}[A-Z]{1,4}$/;
+  
+  // Prefer the segment matching a full callsign pattern
+  const fullMatches = candidates.filter(c => callsignPattern.test(c));
+  if (fullMatches.length === 1) return fullMatches[0];
+  
+  // If multiple match (rare) or none match, pick the longest
+  candidates.sort((a, b) => b.length - a.length);
+  return candidates[0];
+}
+
+// ── QRZ XML API Session Manager ──
+// QRZ provides the most accurate lat/lon (user-supplied, geocoded, or grid-derived).
+// Requires a QRZ Logbook Data subscription for full data access.
+// Session keys are cached and reused per the QRZ spec; re-login only on expiry.
+const qrzSession = {
+  key: null,
+  expiry: 0,        // Timestamp when session was last validated
+  maxAge: 3600000,  // Re-validate session every hour
+  username: CONFIG._qrzUsername || '',
+  password: CONFIG._qrzPassword || '',
+  loginInFlight: null,  // Dedup concurrent login attempts
+  lookupCount: 0,
+  lastError: null
+};
+
+// Persist QRZ credentials to a file so they survive restarts (set via Settings UI)
+const QRZ_CREDS_FILE = path.join(__dirname, '.qrz-credentials');
+
+function loadQRZCredentials() {
+  // .env takes priority
+  if (CONFIG._qrzUsername && CONFIG._qrzPassword) {
+    qrzSession.username = CONFIG._qrzUsername;
+    qrzSession.password = CONFIG._qrzPassword;
+    logDebug('[QRZ] Credentials loaded from .env');
+    return;
+  }
+  // Fall back to persisted file from Settings UI
+  try {
+    if (fs.existsSync(QRZ_CREDS_FILE)) {
+      const creds = JSON.parse(fs.readFileSync(QRZ_CREDS_FILE, 'utf8'));
+      if (creds.username && creds.password) {
+        qrzSession.username = creds.username;
+        qrzSession.password = creds.password;
+        logDebug('[QRZ] Credentials loaded from .qrz-credentials');
+      }
+    }
+  } catch (e) {
+    logDebug('[QRZ] Could not load saved credentials');
+  }
+}
+loadQRZCredentials();
+
+function isQRZConfigured() {
+  return !!(qrzSession.username && qrzSession.password);
+}
+
+// Login to QRZ XML API and obtain a session key
+async function qrzLogin() {
+  if (!isQRZConfigured()) return null;
+  
+  // Dedup: if a login is already in-flight, piggyback on it
+  if (qrzSession.loginInFlight) return qrzSession.loginInFlight;
+  
+  qrzSession.loginInFlight = (async () => {
+    try {
+      const url = `https://xmldata.qrz.com/xml/current/?username=${encodeURIComponent(qrzSession.username)};password=${encodeURIComponent(qrzSession.password)};agent=OpenHamClock/${APP_VERSION}`;
+      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      
+      if (!response.ok) {
+        qrzSession.lastError = `HTTP ${response.status}`;
+        return null;
+      }
+      
+      const xml = await response.text();
+      
+      // Parse session key
+      const keyMatch = xml.match(/<Key>([^<]+)<\/Key>/);
+      const errorMatch = xml.match(/<Error>([^<]+)<\/Error>/);
+      const subExpMatch = xml.match(/<SubExp>([^<]+)<\/SubExp>/);
+      
+      if (errorMatch) {
+        qrzSession.lastError = errorMatch[1];
+        console.error(`[QRZ] Login failed: ${errorMatch[1]}`);
+        return null;
+      }
+      
+      if (keyMatch) {
+        qrzSession.key = keyMatch[1];
+        qrzSession.expiry = Date.now() + qrzSession.maxAge;
+        qrzSession.lastError = null;
+        const subInfo = subExpMatch ? subExpMatch[1] : 'unknown';
+        console.log(`[QRZ] Session established (subscription: ${subInfo})`);
+        return qrzSession.key;
+      }
+      
+      qrzSession.lastError = 'No session key in response';
+      return null;
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        qrzSession.lastError = err.message;
+        logErrorOnce('QRZ', `Login error: ${err.message}`);
+      }
+      return null;
+    } finally {
+      qrzSession.loginInFlight = null;
+    }
+  })();
+  
+  return qrzSession.loginInFlight;
+}
+
+// Get a valid QRZ session key (login if needed)
+async function getQRZSessionKey() {
+  if (!isQRZConfigured()) return null;
+  
+  // Reuse existing key if still fresh
+  if (qrzSession.key && Date.now() < qrzSession.expiry) {
+    return qrzSession.key;
+  }
+  
+  return qrzLogin();
+}
+
+// Look up a callsign via QRZ XML API — returns rich data including geoloc source
+async function qrzLookup(callsign) {
+  const sessionKey = await getQRZSessionKey();
+  if (!sessionKey) return null;
+  
+  try {
+    const url = `https://xmldata.qrz.com/xml/current/?s=${sessionKey};callsign=${encodeURIComponent(callsign)}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    
+    if (!response.ok) return null;
+    
+    const xml = await response.text();
+    
+    // Check for session expiry — if so, re-login and retry once
+    const errorMatch = xml.match(/<Error>([^<]+)<\/Error>/);
+    if (errorMatch) {
+      const err = errorMatch[1];
+      if (err.includes('Session') || err.includes('Invalid session')) {
+        // Session expired — force re-login and retry
+        qrzSession.key = null;
+        qrzSession.expiry = 0;
+        const newKey = await qrzLogin();
+        if (newKey) {
+          return qrzLookup(callsign); // Retry with new key (recursive, max 1 deep)
+        }
+      }
+      // "Not found" is not an error we need to log
+      if (!err.includes('Not found')) {
+        logDebug(`[QRZ] Lookup error for ${callsign}: ${err}`);
+      }
+      return null;
+    }
+    
+    // Parse callsign data from XML
+    const get = (field) => {
+      const m = xml.match(new RegExp(`<${field}>([^<]*)</${field}>`));
+      return m ? m[1] : null;
+    };
+    
+    const lat = get('lat');
+    const lon = get('lon');
+    
+    if (!lat || !lon) return null;
+    
+    qrzSession.lookupCount++;
+    
+    const result = {
+      callsign: get('call') || callsign,
+      lat: parseFloat(lat),
+      lon: parseFloat(lon),
+      grid: get('grid') || '',
+      country: get('country') || get('land') || 'Unknown',
+      state: get('state') || '',
+      county: get('county') || '',
+      cqZone: get('cqzone') || '',
+      ituZone: get('ituzone') || '',
+      fname: get('fname') || '',
+      name: get('name') || '',
+      geoloc: get('geoloc') || 'unknown', // user|geocode|grid|zip|state|dxcc|none
+      source: 'qrz'
+    };
+    
+    logDebug(`[QRZ] ${callsign}: ${result.lat.toFixed(4)}, ${result.lon.toFixed(4)} (${result.geoloc})`);
+    return result;
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      logErrorOnce('QRZ', `Lookup error: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+// Look up via HamQTH DXCC API (no auth, but only DXCC-level accuracy)
+async function hamqthLookup(callsign) {
+  try {
+    const response = await fetch(`https://www.hamqth.com/dxcc.php?callsign=${encodeURIComponent(callsign)}`, {
+      signal: AbortSignal.timeout(8000)
+    });
+    
+    if (!response.ok) return null;
+    
+    const text = await response.text();
+    const latMatch = text.match(/<lat>([^<]+)<\/lat>/);
+    const lonMatch = text.match(/<lng>([^<]+)<\/lng>/);
+    const countryMatch = text.match(/<n>([^<]+)<\/name>/);
+    const cqMatch = text.match(/<cq>([^<]+)<\/cq>/);
+    const ituMatch = text.match(/<itu>([^<]+)<\/itu>/);
+    
+    if (!latMatch || !lonMatch) return null;
+    
+    return {
+      callsign,
+      lat: parseFloat(latMatch[1]),
+      lon: parseFloat(lonMatch[1]),
+      country: countryMatch ? countryMatch[1] : 'Unknown',
+      cqZone: cqMatch ? cqMatch[1] : '',
+      ituZone: ituMatch ? ituMatch[1] : '',
+      source: 'hamqth'
+    };
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      logErrorOnce('Callsign Lookup', `HamQTH: ${err.message}`);
+    }
+    return null;
+  }
+}
+
+// ── QRZ Configuration Endpoints ──
+
+// GET /api/qrz/status — check if QRZ is configured and working
+app.get('/api/qrz/status', (req, res) => {
+  res.json({
+    configured: isQRZConfigured(),
+    hasSession: !!qrzSession.key,
+    lookupCount: qrzSession.lookupCount,
+    lastError: qrzSession.lastError,
+    source: CONFIG._qrzUsername ? 'env' : (qrzSession.username ? 'settings' : 'none')
+  });
+});
+
+// POST /api/qrz/configure — save QRZ credentials (from Settings UI)
+app.post('/api/qrz/configure', writeLimiter, async (req, res) => {
+  const { username, password } = req.body || {};
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password required' });
+  }
+  
+  // Test credentials by attempting login
+  const oldUsername = qrzSession.username;
+  const oldPassword = qrzSession.password;
+  qrzSession.username = username.trim();
+  qrzSession.password = password.trim();
+  qrzSession.key = null;
+  qrzSession.expiry = 0;
+  
+  const key = await qrzLogin();
+  
+  if (key) {
+    // Credentials work — persist them
+    try {
+      fs.writeFileSync(QRZ_CREDS_FILE, JSON.stringify({ 
+        username: qrzSession.username, 
+        password: qrzSession.password 
+      }), 'utf8');
+      fs.chmodSync(QRZ_CREDS_FILE, 0o600); // Owner-only read/write
+    } catch (e) {
+      console.error('[QRZ] Could not save credentials file:', e.message);
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'QRZ credentials validated and saved',
+      lookupCount: qrzSession.lookupCount
+    });
+  } else {
+    // Restore old credentials
+    qrzSession.username = oldUsername;
+    qrzSession.password = oldPassword;
+    res.status(401).json({ 
+      success: false, 
+      error: qrzSession.lastError || 'Login failed'
+    });
+  }
+});
+
+// POST /api/qrz/remove — remove saved QRZ credentials
+app.post('/api/qrz/remove', writeLimiter, (req, res) => {
+  qrzSession.username = CONFIG._qrzUsername || '';
+  qrzSession.password = CONFIG._qrzPassword || '';
+  qrzSession.key = null;
+  qrzSession.expiry = 0;
+  qrzSession.lookupCount = 0;
+  qrzSession.lastError = null;
+  
+  try {
+    if (fs.existsSync(QRZ_CREDS_FILE)) {
+      fs.unlinkSync(QRZ_CREDS_FILE);
+    }
+  } catch (e) {}
+  
+  res.json({ 
+    success: true, 
+    // Still configured if .env has credentials
+    configured: isQRZConfigured(),
+    source: CONFIG._qrzUsername ? 'env' : 'none'
+  });
+});
+
+// ── Unified Callsign Lookup: QRZ → HamQTH → Prefix ──
+
 app.get('/api/callsign/:call', async (req, res) => {
-  const callsign = req.params.call.toUpperCase();
+  // Strip angle brackets and other junk that can arrive from DX cluster data
+  const rawCallsign = req.params.call.replace(/[<>]/g, '').toUpperCase().trim();
   const now = Date.now();
   
-  // Check cache first
-  const cached = callsignLookupCache.get(callsign);
+  // Extract base callsign: 5Z4/OZ6ABL → OZ6ABL, UA1TAN/M → UA1TAN
+  const callsign = extractBaseCallsign(rawCallsign);
+  
+  // Check cache first (check both raw and base forms)
+  const cached = callsignLookupCache.get(callsign) || callsignLookupCache.get(rawCallsign);
   if (cached && (now - cached.timestamp) < CALLSIGN_CACHE_TTL) {
     logDebug('[Callsign Lookup] Cache hit for:', callsign);
     return res.json(cached.data);
   }
   
+  // SECURITY: Validate callsign format
+  if (!/^[A-Z0-9\/\-]{1,20}$/.test(callsign)) {
+    return res.status(400).json({ error: 'Invalid callsign format' });
+  }
+  
+  if (callsign !== rawCallsign) {
+    logDebug(`[Callsign Lookup] Stripped: ${rawCallsign} → ${callsign}`);
+  }
   logDebug('[Callsign Lookup] Looking up:', callsign);
   
   try {
-    // Try HamQTH XML API (no auth needed for basic lookup)
-    const response = await fetch(`https://www.hamqth.com/dxcc.php?callsign=${callsign}`);
-    if (response.ok) {
-      const text = await response.text();
-      
-      // Parse basic info from response
-      const latMatch = text.match(/<lat>([^<]+)<\/lat>/);
-      const lonMatch = text.match(/<lng>([^<]+)<\/lng>/);
-      const countryMatch = text.match(/<name>([^<]+)<\/name>/);
-      const cqMatch = text.match(/<cq>([^<]+)<\/cq>/);
-      const ituMatch = text.match(/<itu>([^<]+)<\/itu>/);
-      
-      if (latMatch && lonMatch) {
-        const result = {
-          callsign,
-          lat: parseFloat(latMatch[1]),
-          lon: parseFloat(lonMatch[1]),
-          country: countryMatch ? countryMatch[1] : 'Unknown',
-          cqZone: cqMatch ? cqMatch[1] : '',
-          ituZone: ituMatch ? ituMatch[1] : ''
-        };
-        logDebug('[Callsign Lookup] Found:', result);
-        // Cache the result
-        callsignLookupCache.set(callsign, { data: result, timestamp: now });
-        return res.json(result);
+    let result = null;
+    
+    // 1. Try QRZ XML API (most accurate — user-supplied coords, geocoded, or grid-derived)
+    if (isQRZConfigured()) {
+      result = await qrzLookup(callsign);
+    }
+    
+    // 2. Fall back to HamQTH DXCC (no auth, but only country-level accuracy)
+    if (!result) {
+      result = await hamqthLookup(callsign);
+    }
+    
+    // 3. Last resort: estimate from callsign prefix
+    if (!result) {
+      const estimated = estimateLocationFromPrefix(callsign);
+      if (estimated) {
+        result = { ...estimated, source: 'prefix' };
       }
     }
     
-    // Fallback: estimate location from callsign prefix
-    const estimated = estimateLocationFromPrefix(callsign);
-    if (estimated) {
-      logDebug('[Callsign Lookup] Estimated from prefix:', estimated);
-      // Cache estimated results too
-      callsignLookupCache.set(callsign, { data: estimated, timestamp: now });
-      return res.json(estimated);
+    if (result) {
+      logDebug(`[Callsign Lookup] ${callsign}: ${result.source} -> ${result.lat?.toFixed(2)}, ${result.lon?.toFixed(2)}`);
+      callsignLookupCache.set(callsign, { data: result, timestamp: now });
+      return res.json(result);
     }
     
     res.status(404).json({ error: 'Callsign not found' });
   } catch (error) {
-    logErrorOnce('Callsign Lookup', error.message);
+    if (error.name !== 'AbortError') {
+      logErrorOnce('Callsign Lookup', error.message);
+    }
+    // Still try prefix estimate on error
+    const estimated = estimateLocationFromPrefix(callsign);
+    if (estimated) {
+      callsignLookupCache.set(callsign, { data: { ...estimated, source: 'prefix' }, timestamp: now });
+      return res.json({ ...estimated, source: 'prefix' });
+    }
     res.status(500).json({ error: 'Lookup failed' });
   }
 });
@@ -3434,6 +4224,16 @@ function getCountryFromPrefix(prefix) {
 let mySpotsCache = new Map(); // key = callsign, value = { data, timestamp }
 const MYSPOTS_CACHE_TTL = 45000; // 45 seconds (just under 60s frontend poll to maximize cache hits)
 
+// Clean expired mySpots entries every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [call, entry] of mySpotsCache) {
+    if (now - entry.timestamp > MYSPOTS_CACHE_TTL * 2) {
+      mySpotsCache.delete(call);
+    }
+  }
+}, 2 * 60 * 1000);
+
 app.get('/api/myspots/:callsign', async (req, res) => {
   const callsign = req.params.callsign.toUpperCase();
   const now = Date.now();
@@ -3500,11 +4300,14 @@ app.get('/api/myspots/:callsign', async (req, res) => {
     const uniqueCalls = [...new Set(mySpots.map(s => s.isMySpot ? s.dxCall : s.spotter))];
     const locations = {};
     
-    for (const call of uniqueCalls.slice(0, 10)) { // Limit to 10 lookups
+    for (const rawCall of uniqueCalls.slice(0, 10)) { // Limit to 10 lookups
       try {
+        const call = extractBaseCallsign(rawCall);
         const loc = estimateLocationFromPrefix(call);
         if (loc) {
-          locations[call] = { lat: loc.lat, lon: loc.lon, country: loc.country };
+          // Store under both raw and base key so spot lookup finds it
+          locations[rawCall] = { lat: loc.lat, lon: loc.lon, country: loc.country };
+          if (call !== rawCall) locations[call] = locations[rawCall];
         }
       } catch (e) {
         // Ignore lookup errors
@@ -3529,7 +4332,9 @@ app.get('/api/myspots/:callsign', async (req, res) => {
     
     res.json(spotsWithLocations);
   } catch (error) {
-    logErrorOnce('My Spots', error.message);
+    if (error.name !== 'AbortError') {
+      logErrorOnce('My Spots', error.message);
+    }
     res.json([]);
   }
 });
@@ -3542,33 +4347,8 @@ app.get('/api/myspots/:callsign', async (req, res) => {
 // WebSocket endpoints: 1885 (ws), 1886 (wss)
 // Topic format: pskr/filter/v2/{band}/{mode}/{sendercall}/{receivercall}/{senderlocator}/{receiverlocator}/{sendercountry}/{receivercountry}
 
-// Cache for PSKReporter data - stores recent spots from MQTT
-const pskReporterSpots = {
-  tx: new Map(), // Map of callsign -> spots where they're being heard
-  rx: new Map(), // Map of callsign -> spots they're receiving
-  maxAge: 60 * 60 * 1000 // Keep spots for 1 hour max
-};
-
-// Clean up old spots periodically
-setInterval(() => {
-  const cutoff = Date.now() - pskReporterSpots.maxAge;
-  for (const [call, spots] of pskReporterSpots.tx) {
-    const filtered = spots.filter(s => s.timestamp > cutoff);
-    if (filtered.length === 0) {
-      pskReporterSpots.tx.delete(call);
-    } else {
-      pskReporterSpots.tx.set(call, filtered);
-    }
-  }
-  for (const [call, spots] of pskReporterSpots.rx) {
-    const filtered = spots.filter(s => s.timestamp > cutoff);
-    if (filtered.length === 0) {
-      pskReporterSpots.rx.delete(call);
-    } else {
-      pskReporterSpots.rx.set(call, filtered);
-    }
-  }
-}, 5 * 60 * 1000); // Clean every 5 minutes
+// NOTE: PSKReporter spots are now handled entirely through the MQTT proxy system
+// (pskMqtt.recentSpots and pskMqtt.spotBuffer), not this legacy cache.
 
 // Convert grid square to lat/lon
 function gridToLatLonSimple(grid) {
@@ -3620,7 +4400,7 @@ app.get('/api/pskreporter/config', (req, res) => {
     stream: {
       endpoint: '/api/pskreporter/stream/{callsign}',
       type: 'text/event-stream',
-      batchInterval: '10s',
+      batchInterval: '15s',
       note: 'Server maintains single MQTT connection to PSKReporter, relays via SSE'
     },
     mqtt: {
@@ -3656,7 +4436,7 @@ app.get('/api/pskreporter/:callsign', async (req, res) => {
 // ============================================
 // Single MQTT connection to mqtt.pskreporter.info, shared across all users.
 // Dynamically subscribes per-callsign topics based on active SSE clients.
-// Buffers incoming spots and pushes to clients every 10 seconds.
+// Buffers incoming spots and pushes to clients every 15 seconds.
 
 const pskMqtt = {
   client: null,
@@ -3683,6 +4463,10 @@ function pskMqttConnect() {
   if (pskMqtt.client) {
     try {
       pskMqtt.client.removeAllListeners();
+      // MUST re-attach a no-op error handler — Node.js crashes on
+      // unhandled 'error' events, and the old client may still emit
+      // errors (e.g. connack timeout) after we've detached
+      pskMqtt.client.on('error', () => {});
       pskMqtt.client.end(true);
     } catch {}
     pskMqtt.client = null;
@@ -3765,9 +4549,11 @@ function pskMqttConnect() {
         const txSpot = { ...spot, lat: receiverLoc?.lat, lon: receiverLoc?.lon, direction: 'tx' };
         if (!pskMqtt.spotBuffer.has(scUpper)) pskMqtt.spotBuffer.set(scUpper, []);
         pskMqtt.spotBuffer.get(scUpper).push(txSpot);
-        // Also add to recent spots
+        // Also add to recent spots (capped at insert time to prevent unbounded growth)
         if (!pskMqtt.recentSpots.has(scUpper)) pskMqtt.recentSpots.set(scUpper, []);
-        pskMqtt.recentSpots.get(scUpper).push(txSpot);
+        const scRecent = pskMqtt.recentSpots.get(scUpper);
+        scRecent.push(txSpot);
+        if (scRecent.length > 250) pskMqtt.recentSpots.set(scUpper, scRecent.slice(-200));
       }
 
       // Buffer for RX subscribers (rc is the callsign being tracked)
@@ -3777,7 +4563,9 @@ function pskMqttConnect() {
         if (!pskMqtt.spotBuffer.has(rcUpper)) pskMqtt.spotBuffer.set(rcUpper, []);
         pskMqtt.spotBuffer.get(rcUpper).push(rxSpot);
         if (!pskMqtt.recentSpots.has(rcUpper)) pskMqtt.recentSpots.set(rcUpper, []);
-        pskMqtt.recentSpots.get(rcUpper).push(rxSpot);
+        const rcRecent = pskMqtt.recentSpots.get(rcUpper);
+        rcRecent.push(rxSpot);
+        if (rcRecent.length > 250) pskMqtt.recentSpots.set(rcUpper, rcRecent.slice(-200));
       }
     } catch {
       pskMqtt.stats.messagesDropped++;
@@ -3858,7 +4646,7 @@ function unsubscribeCallsign(call) {
   });
 }
 
-// Flush buffered spots to SSE clients every 10 seconds
+// Flush buffered spots to SSE clients every 15 seconds
 pskMqtt.flushInterval = setInterval(() => {
   for (const [call, clients] of pskMqtt.subscribers) {
     const buffer = pskMqtt.spotBuffer.get(call);
@@ -3882,18 +4670,30 @@ pskMqtt.flushInterval = setInterval(() => {
     // Clear the buffer after flushing
     pskMqtt.spotBuffer.set(call, []);
   }
-}, 10000); // 10-second batch interval
+}, 15000); // 15-second batch interval
 
 // Clean old recent spots every 5 minutes
 pskMqtt.cleanupInterval = setInterval(() => {
   const cutoff = Date.now() - 60 * 60 * 1000; // 1 hour
   for (const [call, spots] of pskMqtt.recentSpots) {
+    // Delete entries for unsubscribed callsigns immediately
+    if (!pskMqtt.subscribedCalls.has(call)) {
+      pskMqtt.recentSpots.delete(call);
+      continue;
+    }
     const filtered = spots.filter(s => s.timestamp > cutoff);
     if (filtered.length === 0) {
       pskMqtt.recentSpots.delete(call);
     } else {
-      // Keep max 500 per callsign
-      pskMqtt.recentSpots.set(call, filtered.slice(-500));
+      // Keep max 200 per callsign (matches what clients receive on connect)
+      pskMqtt.recentSpots.set(call, filtered.slice(-200));
+    }
+  }
+
+  // Clean spotBuffer entries for unsubscribed callsigns
+  for (const call of pskMqtt.spotBuffer.keys()) {
+    if (!pskMqtt.subscribedCalls.has(call)) {
+      pskMqtt.spotBuffer.delete(call);
     }
   }
 
@@ -3980,6 +4780,9 @@ app.get('/api/pskreporter/stream/:callsign', (req, res) => {
           if (stillEmpty && stillEmpty.size === 0) {
             pskMqtt.subscribers.delete(callsign);
             pskMqtt.subscribedCalls.delete(callsign);
+            // Clean up spot data for this callsign
+            pskMqtt.recentSpots.delete(callsign);
+            pskMqtt.spotBuffer.delete(callsign);
             unsubscribeCallsign(callsign);
             console.log(`[PSK-MQTT] Unsubscribed ${callsign} (no more clients after grace period)`);
 
@@ -3994,6 +4797,7 @@ app.get('/api/pskreporter/stream/:callsign', (req, res) => {
               // Strip listeners before end() to prevent close → reconnect
               try {
                 pskMqtt.client.removeAllListeners();
+                pskMqtt.client.on('error', () => {}); // prevent crash on late errors
                 pskMqtt.client.end(true);
               } catch {}
               pskMqtt.client = null;
@@ -4036,10 +4840,15 @@ function latLonToGrid(lat, lon) {
 
 // Persistent RBN connection and spot storage
 let rbnConnection = null;
-let rbnSpots = []; // Rolling buffer of recent spots
-const MAX_RBN_SPOTS = 2000; // Keep last 2000 spots (all modes: CW, FT8, FT4, RTTY, PSK)
+// Index spots by DX callsign (the station being heard) so each station's spots
+// are preserved even when the stream produces thousands of spots per second.
+// Old approach used a flat 2000-spot buffer — user's 3 spots drowned in the firehose.
+const rbnSpotsByDX = new Map(); // Map<dxCallsign, spot[]>
+const MAX_SPOTS_PER_DX = 50;   // Keep up to 50 spots per DX station
+const MAX_DX_CALLSIGNS = 5000; // Track up to 5000 unique DX stations
 const RBN_SPOT_TTL = 30 * 60 * 1000; // 30 minutes
 const callsignLocationCache = new Map(); // Permanent cache for skimmer locations
+let rbnSpotCount = 0; // Total spots received (for stats)
 
 // Helper function to convert frequency to band
 function freqToBandKHz(freqKHz) {
@@ -4135,20 +4944,29 @@ function maintainRBNConnection(port = 7000) {
           timestampMs: timestamp,
           age: 0,
           source: 'rbn-telnet',
-          grid: null // Will be filled by frontend from cache
+          grid: null // Will be filled by location lookup
         };
         
-        // Add to rolling buffer
-        rbnSpots.push(spot);
-        
-        // Keep only recent spots
-        if (rbnSpots.length > MAX_RBN_SPOTS) {
-          rbnSpots.shift();
+        // Store indexed by DX callsign (the station being heard)
+        const dxUpper = dx.toUpperCase();
+        if (!rbnSpotsByDX.has(dxUpper)) {
+          // Evict oldest DX callsign if at capacity
+          if (rbnSpotsByDX.size >= MAX_DX_CALLSIGNS) {
+            const oldestKey = rbnSpotsByDX.keys().next().value;
+            rbnSpotsByDX.delete(oldestKey);
+          }
+          rbnSpotsByDX.set(dxUpper, []);
         }
         
-        // Clean old spots
-        const cutoff = timestamp - RBN_SPOT_TTL;
-        rbnSpots = rbnSpots.filter(s => s.timestampMs > cutoff);
+        const dxSpots = rbnSpotsByDX.get(dxUpper);
+        dxSpots.push(spot);
+        
+        // Cap per-DX buffer
+        if (dxSpots.length > MAX_SPOTS_PER_DX) {
+          dxSpots.shift();
+        }
+        
+        rbnSpotCount++;
       }
     }
   });
@@ -4172,51 +4990,50 @@ function maintainRBNConnection(port = 7000) {
 // Start persistent connection on server startup
 maintainRBNConnection(7000);
 
-// Cache for RBN API responses
-let rbnApiCache = { data: null, timestamp: 0, key: '' };
-const RBN_API_CACHE_TTL = 30000; // 30 seconds - spots change constantly but not every request
+// Periodic cleanup of expired spots from the DX-indexed map
+setInterval(() => {
+  const cutoff = Date.now() - RBN_SPOT_TTL;
+  let cleaned = 0;
+  for (const [dxCall, spots] of rbnSpotsByDX) {
+    const before = spots.length;
+    const filtered = spots.filter(s => s.timestampMs > cutoff);
+    if (filtered.length === 0) {
+      rbnSpotsByDX.delete(dxCall);
+      cleaned += before;
+    } else if (filtered.length < before) {
+      rbnSpotsByDX.set(dxCall, filtered);
+      cleaned += before - filtered.length;
+    }
+  }
+  if (cleaned > 0) {
+    console.log(`[RBN] Cleanup: removed ${cleaned} expired spots, tracking ${rbnSpotsByDX.size} DX stations`);
+  }
+}, 60000); // Run every 60 seconds
 
-// Endpoint to get recent RBN spots (no filtering, just return all recent spots)
-app.get('/api/rbn/spots', async (req, res) => {
-  const minutes = parseInt(req.query.minutes) || 30;
-  const limit = parseInt(req.query.limit) || 200; // Reduced from 500 to save bandwidth
+// Helper: enrich a spot with skimmer location data
+async function enrichSpotWithLocation(spot) {
+  const skimmerCall = spot.callsign;
   
-  const cacheKey = `${minutes}:${limit}`;
-  const now = Date.now();
-  
-  // Return cached response if fresh
-  if (rbnApiCache.data && rbnApiCache.key === cacheKey && (now - rbnApiCache.timestamp) < RBN_API_CACHE_TTL) {
-    return res.json(rbnApiCache.data);
+  // Check cache first
+  if (callsignLocationCache.has(skimmerCall)) {
+    const location = callsignLocationCache.get(skimmerCall);
+    return {
+      ...spot,
+      grid: location.grid,
+      skimmerLat: location.lat,
+      skimmerLon: location.lon,
+      skimmerCountry: location.country
+    };
   }
   
-  const cutoff = now - (minutes * 60 * 1000);
-  
-  // Filter by time window
-  const recentSpots = rbnSpots
-    .filter(spot => spot.timestampMs > cutoff)
-    .slice(-limit); // Get most recent
-  
-  // Enrich spots with skimmer location data
-  const enrichedSpots = await Promise.all(recentSpots.map(async (spot) => {
-    const skimmerCall = spot.callsign;
-    
-    // Check cache first
-    if (callsignLocationCache.has(skimmerCall)) {
-      const location = callsignLocationCache.get(skimmerCall);
-      return {
-        ...spot,
-        grid: location.grid,
-        skimmerLat: location.lat,
-        skimmerLon: location.lon,
-        skimmerCountry: location.country
-      };
-    }
-    
-    // Lookup location (don't block on failures)
-    try {
-      const response = await fetch(`http://localhost:${PORT}/api/callsign/${skimmerCall}`);
-      if (response.ok) {
-        const locationData = await response.json();
+  // Lookup location (don't block on failures)
+  try {
+    const response = await fetch(`http://localhost:${PORT}/api/callsign/${skimmerCall}`);
+    if (response.ok) {
+      const locationData = await response.json();
+      // Validate coordinates are reasonable
+      if (typeof locationData.lat === 'number' && typeof locationData.lon === 'number' &&
+          Math.abs(locationData.lat) <= 90 && Math.abs(locationData.lon) <= 180) {
         const grid = latLonToGrid(locationData.lat, locationData.lon);
         
         const location = {
@@ -4238,15 +5055,46 @@ app.get('/api/rbn/spots', async (req, res) => {
           skimmerCountry: locationData.country
         };
       }
-    } catch (err) {
-      // Silent fail - return spot without location
     }
-    
-    // Return spot as-is if lookup failed
-    return spot;
-  }));
+  } catch (err) {
+    // Silent fail
+  }
   
-  console.log(`[RBN] Returning ${enrichedSpots.length} enriched spots (last ${minutes} min)`);
+  return spot;
+}
+
+// Cache for RBN API responses (per-callsign)
+const rbnApiCaches = new Map(); // Map<callsign, {data, timestamp}>
+const RBN_API_CACHE_TTL = 10000; // 10 seconds — short so new spots appear quickly
+
+// Primary endpoint: get RBN spots for a specific DX callsign
+// GET /api/rbn/spots?callsign=WB3IZU&minutes=5
+app.get('/api/rbn/spots', async (req, res) => {
+  const callsign = (req.query.callsign || '').toUpperCase().trim();
+  const minutes = Math.min(parseInt(req.query.minutes) || 15, 30);
+  
+  if (!callsign || callsign === 'N0CALL') {
+    return res.json({ count: 0, spots: [], minutes, timestamp: new Date().toISOString(), source: 'rbn-telnet-stream' });
+  }
+  
+  const now = Date.now();
+  
+  // Check per-callsign cache
+  const cached = rbnApiCaches.get(callsign);
+  if (cached && (now - cached.timestamp) < RBN_API_CACHE_TTL) {
+    return res.json(cached.data);
+  }
+  
+  const cutoff = now - (minutes * 60 * 1000);
+  
+  // Direct O(1) lookup by DX callsign — no scanning the full firehose
+  const dxSpots = rbnSpotsByDX.get(callsign) || [];
+  const recentSpots = dxSpots.filter(spot => spot.timestampMs > cutoff);
+  
+  // Enrich with skimmer locations
+  const enrichedSpots = await Promise.all(recentSpots.map(enrichSpotWithLocation));
+  
+  console.log(`[RBN] Returning ${enrichedSpots.length} spots for ${callsign} (last ${minutes} min, ${rbnSpotsByDX.size} DX stations tracked)`);
   
   const response = {
     count: enrichedSpots.length,
@@ -4256,8 +5104,14 @@ app.get('/api/rbn/spots', async (req, res) => {
     source: 'rbn-telnet-stream'
   };
   
-  // Cache the response
-  rbnApiCache = { data: response, timestamp: Date.now(), key: cacheKey };
+  // Cache per-callsign
+  rbnApiCaches.set(callsign, { data: response, timestamp: now });
+  
+  // Limit cache size
+  if (rbnApiCaches.size > 100) {
+    const oldestKey = rbnApiCaches.keys().next().value;
+    rbnApiCaches.delete(oldestKey);
+  }
   
   res.json(response);
 });
@@ -4300,7 +5154,7 @@ app.get('/api/rbn/location/:callsign', async (req, res) => {
 
 // Legacy endpoint for compatibility (deprecated)
 app.get('/api/rbn', async (req, res) => {
-  console.log('[RBN] Warning: Using deprecated /api/rbn endpoint, use /api/rbn/spots instead');
+  console.log('[RBN] Warning: Using deprecated /api/rbn endpoint, use /api/rbn/spots?callsign=XX instead');
   
   const callsign = (req.query.callsign || '').toUpperCase().trim();
   const minutes = parseInt(req.query.minutes) || 30;
@@ -4313,9 +5167,10 @@ app.get('/api/rbn', async (req, res) => {
   const now = Date.now();
   const cutoff = now - (minutes * 60 * 1000);
   
-  // Filter spots for this callsign
-  const userSpots = rbnSpots
-    .filter(spot => spot.timestampMs > cutoff && spot.dx.toUpperCase() === callsign)
+  // Direct lookup by DX callsign
+  const dxSpots = rbnSpotsByDX.get(callsign) || [];
+  const userSpots = dxSpots
+    .filter(spot => spot.timestampMs > cutoff)
     .slice(-limit);
   
   res.json(userSpots);
@@ -4501,7 +5356,7 @@ app.get('/api/wspr/heatmap', async (req, res) => {
     
     const response = await fetch(url, {
       headers: { 
-        'User-Agent': 'OpenHamClock/15.2.11 (Amateur Radio Dashboard)',
+        'User-Agent': 'OpenHamClock/15.2.12 (Amateur Radio Dashboard)',
         'Accept': '*/*'
       },
       signal: controller.signal
@@ -5265,8 +6120,8 @@ app.get('/api/propagation', async (req, res) => {
     }
     
     // ===== FALLBACK: Built-in calculations =====
-    const bands = ['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '11m', '10m', '6m'];
-    const bandFreqs = [1.8, 3.5, 7, 10, 14, 18, 21, 24, 27, 28, 50];
+    const bands = ['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'];
+    const bandFreqs = [1.8, 3.5, 7, 10, 14, 18, 21, 24, 28];
     
     // Generate predictions (hybrid or fallback)
     const effectiveIonoData = hasValidIonoData ? ionoData : null;
@@ -5768,14 +6623,17 @@ function getStatus(reliability) {
   return 'CLOSED';
 }
 
-// QRZ Callsign lookup (requires API key)
+// QRZ Callsign lookup — redirects to unified callsign lookup (QRZ → HamQTH → prefix)
 app.get('/api/qrz/lookup/:callsign', async (req, res) => {
-  const { callsign } = req.params;
-  // Note: QRZ requires an API key - this is a placeholder
-  res.json({ 
-    message: 'QRZ lookup requires API key configuration',
-    callsign: callsign.toUpperCase()
-  });
+  // Forward to the unified lookup which already tries QRZ first
+  const callsign = req.params.callsign.toUpperCase().trim();
+  try {
+    const response = await fetch(`http://localhost:${PORT}/api/callsign/${encodeURIComponent(callsign)}`);
+    const data = await response.json();
+    res.status(response.status).json(data);
+  } catch (e) {
+    res.status(500).json({ error: 'Lookup failed' });
+  }
 });
 
 // ============================================
@@ -6807,6 +7665,10 @@ function generateStatusDashboard() {
 app.get('/api/health', (req, res) => {
   rolloverVisitorStats();
   
+  // SECURITY: Check if request is authenticated for full details
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.query.key || '';
+  const isAuthed = API_WRITE_KEY && token === API_WRITE_KEY;
+  
   // Check if browser wants HTML or explicitly requesting JSON
   const wantsJSON = req.query.format === 'json' || 
                     req.headers.accept?.includes('application/json') ||
@@ -6827,11 +7689,12 @@ app.get('/api/health', (req, res) => {
       uptime: process.uptime(),
       uptimeFormatted: `${Math.floor(process.uptime() / 86400)}d ${Math.floor((process.uptime() % 86400) / 3600)}h ${Math.floor((process.uptime() % 3600) / 60)}m`,
       timestamp: new Date().toISOString(),
-      persistence: {
+      // SECURITY: Only expose file paths and detailed internals to authenticated requests
+      persistence: isAuthed ? {
         enabled: !!STATS_FILE,
         file: STATS_FILE || null,
         lastSaved: visitorStats.lastSaved
-      },
+      } : { enabled: !!STATS_FILE },
       sessions: sessionTracker.getStats(),
       visitors: {
         today: {
@@ -6884,7 +7747,8 @@ app.get('/api/health', (req, res) => {
         totalInFlight: upstream.inFlight.size,
         pskMqttProxy: {
           connected: pskMqtt.connected,
-          activeCallsigns: [...pskMqtt.subscribedCalls],
+          // SECURITY: Only expose active callsigns to authenticated requests
+          activeCallsigns: isAuthed ? [...pskMqtt.subscribedCalls] : pskMqtt.subscribedCalls.size,
           sseClients: [...pskMqtt.subscribers.values()].reduce((n, s) => n + s.size, 0),
           spotsReceived: pskMqtt.stats.spotsReceived,
           spotsRelayed: pskMqtt.stats.spotsRelayed,
@@ -6988,7 +7852,7 @@ app.get('/api/settings', (req, res) => {
 });
 
 // POST /api/settings — save UI settings (or 404 if sync disabled)
-app.post('/api/settings', (req, res) => {
+app.post('/api/settings', writeLimiter, requireWriteAuth, (req, res) => {
   if (!SETTINGS_SYNC_ENABLED) {
     return res.status(404).json({ enabled: false });
   }
@@ -7063,6 +7927,7 @@ app.get('/api/config', (req, res) => {
       dxpeditions: true,
       wsjtxRelay: !!WSJTX_RELAY_KEY,
       settingsSync: SETTINGS_SYNC_ENABLED,
+      qrzLookup: isQRZConfigured(),
     },
     
     // Refresh intervals (ms)
@@ -7090,7 +7955,7 @@ app.get('/api/weather', (req, res) => {
 // ============================================
 // MANUAL UPDATE ENDPOINT
 // ============================================
-app.post('/api/update', async (req, res) => {
+app.post('/api/update', writeLimiter, requireWriteAuth, async (req, res) => {
   if (autoUpdateState.inProgress) {
     return res.status(409).json({ error: 'Update already in progress' });
   }
@@ -7424,21 +8289,49 @@ function parseWSJTXMessage(buffer) {
  */
 // Callsign → grid cache: remembers grids seen in CQ messages for later QSO exchanges
 const wsjtxGridCache = new Map(); // callsign → { grid, lat, lon, timestamp }
+const wsjtxHamqthInflight = new Set(); // callsigns currently being looked up (prevents duplicate requests)
 
 function parseDecodeMessage(text) {
   if (!text) return {};
   const result = {};
   
-  // Grid square regex: 2 alpha + 2 digits, optionally + 2 lowercase alpha
+  // FT8/FT4 protocol tokens that look like valid Maidenhead grids but aren't
+  // RR73 matches [A-R]{2}\d{2} but is a QSO acknowledgment
+  const FT8_TOKENS = new Set(['RR73', 'RR53', 'RR13', 'RR23', 'RR33', 'RR43', 'RR63', 'RR83', 'RR93']);
+  
+  // Validate grid: must be valid Maidenhead AND not an FT8 protocol token
+  function isGrid(s) {
+    if (!s || s.length < 4) return false;
+    const g = s.toUpperCase();
+    if (FT8_TOKENS.has(g)) return false;
+    return /^[A-R]{2}\d{2}(?:[A-Xa-x]{2})?$/.test(s);
+  }
+  
+  // Grid square regex: 2 alpha (A-R) + 2 digits, optionally + 2 alpha (a-x)
   const gridRegex = /\b([A-R]{2}\d{2}(?:[a-x]{2})?)\b/i;
   
-  // CQ message: "CQ DX K1ABC FN42" or "CQ K1ABC FN42"
-  const cqMatch = text.match(/^CQ\s+(?:(\S+)\s+)?([A-Z0-9/]+)\s+([A-R]{2}\d{2}[a-x]{0,2})?/i);
-  if (cqMatch) {
+  // ── CQ messages ──
+  // Format: "CQ [modifier] CALLSIGN [GRID]"
+  // Examples: "CQ K1ABC FN42", "CQ DX K1ABC FN42", "CQ POTA N0VIG EM28", "CQ K1ABC"
+  if (/^CQ\s/i.test(text)) {
     result.type = 'CQ';
-    result.modifier = cqMatch[1] && !cqMatch[1].match(/^[A-Z0-9/]{3,}$/) ? cqMatch[1] : null;
-    result.caller = cqMatch[2] || cqMatch[1];
-    result.grid = cqMatch[3] || null;
+    const tokens = text.split(/\s+/).slice(1); // drop "CQ"
+    
+    // Work backwards: last token might be a grid
+    let grid = null;
+    if (tokens.length >= 2 && isGrid(tokens[tokens.length - 1])) {
+      grid = tokens.pop();
+    }
+    
+    // Remaining tokens: [modifier] CALLSIGN
+    // The callsign is always the LAST remaining token
+    // Modifiers (DX, POTA, NA, EU, etc.) come before it
+    if (tokens.length >= 1) {
+      result.caller = tokens[tokens.length - 1];
+      result.modifier = tokens.length >= 2 ? tokens.slice(0, -1).join(' ') : null;
+    }
+    
+    result.grid = grid;
     
     // Cache this callsign's grid for future lookups
     if (result.caller && result.grid) {
@@ -7455,24 +8348,23 @@ function parseDecodeMessage(text) {
     return result;
   }
   
-  // Standard QSO exchange: "K1ABC W2DEF +05" or "K1ABC W2DEF R-12" or "K1ABC W2DEF RR73"
-  // or "K1ABC W2DEF EN82" or "K1ABC W2DEF EN82 a7"
-  const qsoMatch = text.match(/^([A-Z0-9/]+)\s+([A-Z0-9/]+)\s+(.*)/i);
+  // ── Standard QSO exchange ──
+  // Format: "DXCALL DECALL EXCHANGE"
+  // Exchange can be: grid (EN82), report (+05, -12, R+05, R-12), 73, RR73, RRR
+  const qsoMatch = text.match(/^([A-Z0-9/<>.]+)\s+([A-Z0-9/<>.]+)\s+(.*)/i);
   if (qsoMatch) {
     result.type = 'QSO';
     result.dxCall = qsoMatch[1];
     result.deCall = qsoMatch[2];
     result.exchange = qsoMatch[3].trim();
     
-    // Look for a grid square ANYWHERE in the exchange text
-    // This handles "EN82", "EN82 a7", "R EN82", etc.
+    // Look for a grid square in the exchange, but NOT FT8 protocol tokens
     const gridMatch = result.exchange.match(gridRegex);
-    if (gridMatch && isValidGrid(gridMatch[1])) {
+    if (gridMatch && isGrid(gridMatch[1])) {
       result.grid = gridMatch[1];
-      // Cache grid for both callsigns involved
+      // Cache grid — in exchange it typically belongs to the calling station (dxCall)
       const coords = gridToLatLon(result.grid);
       if (coords) {
-        // Grid in exchange typically belongs to the calling station (dxCall)
         wsjtxGridCache.set(result.dxCall.toUpperCase(), {
           grid: result.grid,
           lat: coords.latitude,
@@ -7593,9 +8485,48 @@ function handleWSJTXMessage(msg, state) {
         }
       }
       
+      // Try HamQTH callsign cache (DXCC-level, more accurate than prefix centroid)
+      if (!decode.lat) {
+        const rawCall = (parsed.caller || parsed.dxCall || '').toUpperCase();
+        const targetCall = extractBaseCallsign(rawCall);
+        if (targetCall) {
+          const cached = callsignLookupCache.get(targetCall);
+          if (cached && (Date.now() - cached.timestamp) < CALLSIGN_CACHE_TTL && cached.data?.lat != null) {
+            decode.lat = cached.data.lat;
+            decode.lon = cached.data.lon;
+            decode.gridSource = 'hamqth';
+          } else if (targetCall.length >= 3 && !wsjtxHamqthInflight.has(targetCall) && wsjtxHamqthInflight.size < 5) {
+            // Background lookup for next cycle (fire-and-forget, max 5 concurrent)
+            wsjtxHamqthInflight.add(targetCall);
+            fetch(`https://www.hamqth.com/dxcc.php?callsign=${encodeURIComponent(targetCall)}`, {
+              headers: { 'User-Agent': 'OpenHamClock/' + APP_VERSION },
+              signal: AbortSignal.timeout(5000)
+            }).then(async (resp) => {
+              if (!resp.ok) return;
+              const text = await resp.text();
+              const latMatch = text.match(/<lat>([^<]+)<\/lat>/);
+              const lonMatch = text.match(/<lng>([^<]+)<\/lng>/);
+              const countryMatch = text.match(/<n>([^<]+)<\/name>/);
+              if (latMatch && lonMatch) {
+                callsignLookupCache.set(targetCall, {
+                  data: {
+                    callsign: targetCall,
+                    lat: parseFloat(latMatch[1]),
+                    lon: parseFloat(lonMatch[1]),
+                    country: countryMatch ? countryMatch[1] : ''
+                  },
+                  timestamp: Date.now()
+                });
+              }
+            }).catch(() => {}).finally(() => { wsjtxHamqthInflight.delete(targetCall); });
+          }
+        }
+      }
+      
       // Last resort: estimate from callsign prefix
       if (!decode.lat) {
-        const targetCall = parsed.caller || parsed.dxCall || '';
+        const rawCall = parsed.caller || parsed.dxCall || '';
+        const targetCall = extractBaseCallsign(rawCall);
         if (targetCall) {
           const prefixLoc = estimateLocationFromPrefix(targetCall);
           if (prefixLoc) {
@@ -7723,7 +8654,7 @@ async function lookupCallLatLon(callsign) {
 }
 
 // POST one QSO from a bridge (your Python script)
-app.post("/api/n3fjp/qso", async (req, res) => {
+app.post("/api/n3fjp/qso", writeLimiter, requireWriteAuth, async (req, res) => {
   const qso = req.body || {};
   if (!qso.dx_call) return res.status(400).json({ ok: false, error: "dx_call required" });
 
@@ -7957,12 +8888,26 @@ app.get('/api/wsjtx/relay/download/:platform', (req, res) => {
     return res.status(400).json({ error: 'Session ID required — download from the OpenHamClock dashboard' });
   }
   
+  // SECURITY: Validate platform parameter
+  if (!['linux', 'mac', 'windows'].includes(platform)) {
+    return res.status(400).json({ error: 'Invalid platform. Use: linux, mac, or windows' });
+  }
+  
+  // SECURITY: Sanitize all values embedded into generated scripts to prevent command injection
+  // Only allow URL-safe characters in serverURL, alphanumeric + hyphen/underscore in session/key
+  function sanitizeForShell(str) {
+    return String(str).replace(/[^a-zA-Z0-9._\-:\/\@]/g, '');
+  }
+  const safeServerURL = sanitizeForShell(serverURL);
+  const safeSessionId = sanitizeForShell(sessionId);
+  const safeRelayKey = sanitizeForShell(WSJTX_RELAY_KEY);
+  
   if (platform === 'linux' || platform === 'mac') {
     // Build bash script with relay.js embedded as heredoc
     const lines = [
       '#!/bin/bash',
       '# OpenHamClock WSJT-X Relay — Auto-configured',
-      '# Generated by ' + serverURL,
+      '# Generated by ' + safeServerURL,
       '#',
       '# Usage:  bash ' + (platform === 'mac' ? 'start-relay.command' : 'start-relay.sh'),
       '# Stop:   Ctrl+C',
@@ -7997,9 +8942,9 @@ app.get('/api/wsjtx/relay/download/:platform', (req, res) => {
       '',
       '# Run relay',
       'exec node "$RELAY_FILE" \\',
-      '  --url "' + serverURL + '" \\',
-      '  --key "' + WSJTX_RELAY_KEY + '" \\',
-      '  --session "' + sessionId + '"',
+      '  --url "' + safeServerURL + '" \\',
+      '  --key "' + safeRelayKey + '" \\',
+      '  --session "' + safeSessionId + '"',
     ];
     
     const script = lines.join('\n') + '\n';
@@ -8075,12 +9020,12 @@ app.get('/api/wsjtx/relay/download/:platform', (req, res) => {
       'echo.',
       '',
       ':have_node',
-      'echo   Server: ' + serverURL,
+      'echo   Server: ' + safeServerURL,
       'echo.',
       '',
       ':: Download relay agent',
       'echo   Downloading relay agent...',
-      'powershell -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri \'' + serverURL + '/api/wsjtx/relay/agent.js\' -OutFile \'%TEMP%\\ohc-relay.js\' } catch { Write-Host $_.Exception.Message; exit 1 }"',
+      'powershell -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri \'' + safeServerURL + '/api/wsjtx/relay/agent.js\' -OutFile \'%TEMP%\\ohc-relay.js\' } catch { Write-Host $_.Exception.Message; exit 1 }"',
       'if errorlevel 1 (',
       '    echo   Failed to download relay agent!',
       '    echo   Check your internet connection and try again.',
@@ -8098,7 +9043,7 @@ app.get('/api/wsjtx/relay/download/:platform', (req, res) => {
       'echo.',
       '',
       ':: Run relay',
-      '%NODE_EXE% "%TEMP%\\ohc-relay.js" --url "' + serverURL + '" --key "' + WSJTX_RELAY_KEY + '" --session "' + sessionId + '"',
+      '%NODE_EXE% "%TEMP%\\ohc-relay.js" --url "' + safeServerURL + '" --key "' + safeRelayKey + '" --session "' + safeSessionId + '"',
       '',
       'echo.',
       'echo   Relay stopped.',
@@ -8204,7 +9149,9 @@ function resolveQsoLocation(dxCall, grid, comment) {
       return { lat: loc.lat, lon: loc.lon, grid: gridToUse, source: 'grid' };
     }
   }
-  const prefixLoc = estimateLocationFromPrefix(dxCall);
+  // Strip modifiers (5Z4/OZ6ABL → OZ6ABL) so prefix estimation uses the home call
+  const baseCall = extractBaseCallsign(dxCall);
+  const prefixLoc = estimateLocationFromPrefix(baseCall);
   if (prefixLoc) {
     return { lat: prefixLoc.lat, lon: prefixLoc.lon, grid: prefixLoc.grid || null, source: prefixLoc.source || 'prefix' };
   }
@@ -8328,7 +9275,7 @@ function normalizeContestQso(input, source) {
   }
 
   if (Number.isNaN(lat) || Number.isNaN(lon)) {
-    const loc = estimateLocationFromPrefix(dxCall);
+    const loc = estimateLocationFromPrefix(extractBaseCallsign(dxCall));
     if (loc) {
       lat = loc.lat;
       lon = loc.lon;
@@ -8404,7 +9351,7 @@ app.get('/api/contest/qsos', (req, res) => {
 });
 
 // API endpoint: ingest contest QSOs (JSON)
-app.post('/api/contest/qsos', (req, res) => {
+app.post('/api/contest/qsos', writeLimiter, requireWriteAuth, (req, res) => {
   const payload = Array.isArray(req.body) ? req.body : [req.body];
   let accepted = 0;
 
@@ -8490,6 +9437,20 @@ if (N1MM_ENABLED) {
   console.log('');
 
   startAutoUpdateScheduler();
+  
+  // Check for outdated systemd service file that prevents auto-update restart
+  if (AUTO_UPDATE_ENABLED && (process.env.INVOCATION_ID || process.ppid === 1)) {
+    try {
+      const serviceFile = fs.readFileSync('/etc/systemd/system/openhamclock.service', 'utf8');
+      if (serviceFile.includes('Restart=on-failure') && !serviceFile.includes('Restart=always')) {
+        console.log('  ⚠️  Your systemd service file uses Restart=on-failure');
+        console.log('     Auto-updates may not restart properly.');
+        console.log('     Fix: sudo sed -i "s/Restart=on-failure/Restart=always/" /etc/systemd/system/openhamclock.service');
+        console.log('     Then: sudo systemctl daemon-reload');
+        console.log('');
+      }
+    } catch { /* Not running as systemd service, or can't read file — ignore */ }
+  }
 
   // Pre-warm N0NBH cache so solar-indices has current SFI/SSN on first request
   setTimeout(async () => {

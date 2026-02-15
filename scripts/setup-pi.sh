@@ -150,6 +150,10 @@ setup_repository() {
     # Install npm dependencies
     npm install --include=dev
     
+    # Download vendor assets (fonts, Leaflet) for self-hosting — no external CDN requests
+    echo -e "${BLUE}>>> Downloading vendor assets for privacy...${NC}"
+    bash scripts/vendor-download.sh || echo -e "${YELLOW}⚠ Vendor download failed — will fall back to CDN${NC}"
+    
     # Build frontend for production
     npm run build
     
@@ -173,8 +177,9 @@ Type=simple
 User=$USER
 WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/bin/node server.js
-Restart=on-failure
+Restart=always
 RestartSec=10
+SuccessExitStatus=75
 Environment=NODE_ENV=production
 Environment=PORT=3000
 

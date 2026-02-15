@@ -2,17 +2,20 @@
  * useSOTASpots Hook
  * Fetches Summits on the Air activations via server proxy (for caching)
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useVisibilityRefresh } from './useVisibilityRefresh';
+import { apiFetch } from '../utils/apiFetch';
 
 export const useSOTASpots = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const fetchRef = useRef(null);
 
   useEffect(() => {
     const fetchSOTA = async () => {
       try {
-        const res = await fetch('/api/sota/spots');
-        if (res.ok) {
+        const res = await apiFetch('/api/sota/spots');
+        if (res?.ok) {
           const spots = await res.json();
 
           // Map SOTA API response to our standard spot format
@@ -56,9 +59,12 @@ export const useSOTASpots = () => {
     };
 
     fetchSOTA();
+    fetchRef.current = fetchSOTA;
     const interval = setInterval(fetchSOTA, 120 * 1000); // 2 minutes
     return () => clearInterval(interval);
   }, []);
+
+  useVisibilityRefresh(() => fetchRef.current?.(), 10000);
 
   return { data, loading };
 };

@@ -2,7 +2,9 @@
  * usePOTASpots Hook
  * Fetches Parks on the Air activations via server proxy (for caching)
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useVisibilityRefresh } from './useVisibilityRefresh';
+import { apiFetch } from '../utils/apiFetch';
 
 // Convert grid square to lat/lon
 function gridToLatLon(grid) {
@@ -30,13 +32,14 @@ function gridToLatLon(grid) {
 export const usePOTASpots = () => {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const fetchRefPOTA = useRef(null);
 
   useEffect(() => {
     const fetchPOTA = async () => {
       try {
         // Use server proxy for caching - reduces external API calls
-        const res = await fetch('/api/pota/spots');
-        if (res.ok) {
+        const res = await apiFetch('/api/pota/spots');
+        if (res?.ok) {
           const spots = await res.json();
           
           // Filter out QRT spots and nearly-expired spots, then sort by most recent
@@ -94,9 +97,13 @@ export const usePOTASpots = () => {
     };
     
     fetchPOTA();
-    const interval = setInterval(fetchPOTA, 120 * 1000); // 2 minutes - reduced from 1 to save bandwidth
+    const interval = setInterval(fetchPOTA, 120 * 1000); // 2 minutes
+    fetchRefPOTA.current = fetchPOTA;
     return () => clearInterval(interval);
   }, []);
+
+  // Refresh immediately when tab becomes visible (handles browser throttling)
+  useVisibilityRefresh(() => fetchRefPOTA.current?.(), 10000);
 
   return { data, loading };
 };
