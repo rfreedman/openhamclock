@@ -43,35 +43,38 @@ const applyWatchlistFilter = (filters, dxCall) => {
  * @returns {boolean} - true if item passes filters, false if filtered out
  */
 const applySpotterInclusionFilters = (filters, spotterInfo, dxInfo) => {
+    try {
+        // DE Continent 'include' filter - filter by SPOTTER's continent
+        // Also excludes domestic spots (DX in same continent as spotter)
+        if (filters.continents?.length > 0) {
+            // Spotter must be FROM one of the selected continents
+            if (!spotterInfo.continent || !filters.continents.includes(spotterInfo.continent)) {
+                return false;
+            }
+            // DX must be OUTSIDE the selected continents (exclude domestic spots)
+            if (dxInfo.continent && filters.continents.includes(dxInfo.continent)) {
+                return false;
+            }
+        }
 
-    // DE Continent 'include' filter - filter by SPOTTER's continent
-    // Also excludes domestic spots (DX in same continent as spotter)
-    if (filters.continents?.length > 0) {
-        // Spotter must be FROM one of the selected continents
-        if (!spotterInfo.continent || !filters.continents.includes(spotterInfo.continent)) {
-            return false;
+        // Spotter CQ Zone Inclusion [done]
+        if (filters.cqZones?.length > 0) {
+            if (!spotterInfo.cq_zone || !filters.cqZones.includes(Number(spotterInfo.cq_zone))) {
+                return false;
+            }
         }
-        // DX must be OUTSIDE the selected continents (exclude domestic spots)
-        if (dxInfo.continent && filters.continents.includes(dxInfo.continent)) {
-            return false;
+
+        // DE ITU Zone 'include' filter - filter by SPOTTER's zone
+        if (filters.ituZones?.length > 0) {
+            if (!spotterInfo.itu_zone || !filters.ituZones.includes(Number(spotterInfo.itu_zone))) {
+                return false;
+            }
         }
+    } catch (error) {
+        console.log(`[applySpotterInclusionFilters] Error: ${error}`);
     }
-
-    // DE CQ Zone 'include' filter - filter by SPOTTER's zone
-    if (filters.cqZones?.length > 0) {
-        if (!spotterInfo.cqZone || !filters.cqZones.includes(spotterInfo.cqZone)) {
-            return false;
-        }
-    }
-
-    // DE ITU Zone 'include' filter - filter by SPOTTER's zone
-    if (filters.ituZones?.length > 0) {
-        if (!spotterInfo.ituZone || !filters.ituZones.includes(spotterInfo.ituZone)) {
-            return false;
-        }
-    }
-
     return true;
+
 }
 
 /**
@@ -90,6 +93,7 @@ const applySpotterInclusionFilters = (filters, spotterInfo, dxInfo) => {
  *
  * @returns {boolean} - true if item passes filters, false if filtered out
  */
+
 const applySpotExclusionFilters = (filters, spotter, dxCall, dxInfo) => {
 
     // DX (spot) Continent 'exclude' filter
@@ -101,14 +105,14 @@ const applySpotExclusionFilters = (filters, spotter, dxCall, dxInfo) => {
 
     // DX (spot) CQ Zone 'exclude' filter
     if (filters.excludeCqZones?.length > 0) {
-        if (dxInfo.cqZone && filters.excludeCqZones.includes(dxInfo.cqZone)) {
+        if (dxInfo.cq_zone && filters.excludeCqZones.includes(Number(dxInfo.cq_zone))) {
             return false;
         }
     }
 
     // DX (spot) ITU Zone 'exclude' filter
     if (filters.excludeItuZones?.length > 0) {
-        if (dxInfo.ituZone && filters.excludeItuZones.includes(dxInfo.ituZone)) {
+        if (dxInfo.itu_zone && filters.excludeItuZones.includes(Number(dxInfo.itu_zone))) {
             return false;
         }
     }

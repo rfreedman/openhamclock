@@ -1,0 +1,11 @@
+    31 January 2026 (CTY-3607)
+    VER20260131, Version entity is East Malaysia, 9M6
+
+    Added/changed Entities/Prefixes/Callsigns:
+
+	* WE9G/KC4 is Antarctica, CE9 in ITU zone 73
+	* HC8M/5 is Ecuador, HC
+	* LU3EMN/W is Argentina, LU in ITU zone 16
+
+    Removed Entities/Prefixes/Callsigns:
+

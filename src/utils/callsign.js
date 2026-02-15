@@ -3,6 +3,9 @@
  * Band detection, mode detection, callsign parsing
  */
 
+import entities from './entities-data.json' with { type: 'json' };
+
+
 /**
  * HF Amateur Bands
  */
@@ -86,138 +89,47 @@ export const detectMode = (comment) => {
   return null;
 };
 
-/**
- * Callsign prefix to CQ/ITU zone and continent mapping
- */
-export const PREFIX_MAP = {
-  // North America
-  'W': { cq: 5, itu: 8, cont: 'NA' }, 'K': { cq: 5, itu: 8, cont: 'NA' }, 
-  'N': { cq: 5, itu: 8, cont: 'NA' }, 'AA': { cq: 5, itu: 8, cont: 'NA' },
-  'VE': { cq: 5, itu: 4, cont: 'NA' }, 'VA': { cq: 5, itu: 4, cont: 'NA' },
-  'XE': { cq: 6, itu: 10, cont: 'NA' }, 'XF': { cq: 6, itu: 10, cont: 'NA' },
-  // Europe
-  'G': { cq: 14, itu: 27, cont: 'EU' }, 'M': { cq: 14, itu: 27, cont: 'EU' },
-  'F': { cq: 14, itu: 27, cont: 'EU' }, 'DL': { cq: 14, itu: 28, cont: 'EU' },
-  'DJ': { cq: 14, itu: 28, cont: 'EU' }, 'DK': { cq: 14, itu: 28, cont: 'EU' },
-  'PA': { cq: 14, itu: 27, cont: 'EU' }, 'ON': { cq: 14, itu: 27, cont: 'EU' },
-  'EA': { cq: 14, itu: 37, cont: 'EU' }, 'I': { cq: 15, itu: 28, cont: 'EU' },
-  'SP': { cq: 15, itu: 28, cont: 'EU' }, 'OK': { cq: 15, itu: 28, cont: 'EU' },
-  'OM': { cq: 15, itu: 28, cont: 'EU' }, 'HA': { cq: 15, itu: 28, cont: 'EU' },
-  'OE': { cq: 15, itu: 28, cont: 'EU' }, 'HB': { cq: 14, itu: 28, cont: 'EU' },
-  'SM': { cq: 14, itu: 18, cont: 'EU' }, 'LA': { cq: 14, itu: 18, cont: 'EU' },
-  'OH': { cq: 15, itu: 18, cont: 'EU' }, 'OZ': { cq: 14, itu: 18, cont: 'EU' },
-  'UA': { cq: 16, itu: 29, cont: 'EU' }, 'RA': { cq: 16, itu: 29, cont: 'EU' },
-  'RU': { cq: 16, itu: 29, cont: 'EU' }, 'RW': { cq: 16, itu: 29, cont: 'EU' },
-  'UR': { cq: 16, itu: 29, cont: 'EU' }, 'UT': { cq: 16, itu: 29, cont: 'EU' },
-  'YU': { cq: 15, itu: 28, cont: 'EU' }, 'YT': { cq: 15, itu: 28, cont: 'EU' },
-  'LY': { cq: 15, itu: 29, cont: 'EU' }, 'ES': { cq: 15, itu: 29, cont: 'EU' },
-  'YL': { cq: 15, itu: 29, cont: 'EU' }, 'EI': { cq: 14, itu: 27, cont: 'EU' },
-  'GI': { cq: 14, itu: 27, cont: 'EU' }, 'GW': { cq: 14, itu: 27, cont: 'EU' },
-  'GM': { cq: 14, itu: 27, cont: 'EU' }, 'CT': { cq: 14, itu: 37, cont: 'EU' },
-  'SV': { cq: 20, itu: 28, cont: 'EU' }, '9A': { cq: 15, itu: 28, cont: 'EU' },
-  'S5': { cq: 15, itu: 28, cont: 'EU' }, 'LZ': { cq: 20, itu: 28, cont: 'EU' },
-  'YO': { cq: 20, itu: 28, cont: 'EU' },
-  // Asia
-  'JA': { cq: 25, itu: 45, cont: 'AS' }, 'JH': { cq: 25, itu: 45, cont: 'AS' },
-  'JR': { cq: 25, itu: 45, cont: 'AS' }, 'JE': { cq: 25, itu: 45, cont: 'AS' },
-  'JF': { cq: 25, itu: 45, cont: 'AS' }, 'JG': { cq: 25, itu: 45, cont: 'AS' },
-  'JI': { cq: 25, itu: 45, cont: 'AS' }, 'JJ': { cq: 25, itu: 45, cont: 'AS' },
-  'JK': { cq: 25, itu: 45, cont: 'AS' }, 'JL': { cq: 25, itu: 45, cont: 'AS' },
-  'JM': { cq: 25, itu: 45, cont: 'AS' }, 'JN': { cq: 25, itu: 45, cont: 'AS' },
-  'JO': { cq: 25, itu: 45, cont: 'AS' }, 'JP': { cq: 25, itu: 45, cont: 'AS' },
-  'JQ': { cq: 25, itu: 45, cont: 'AS' }, 'JS': { cq: 25, itu: 45, cont: 'AS' },
-  'HL': { cq: 25, itu: 44, cont: 'AS' }, 'DS': { cq: 25, itu: 44, cont: 'AS' },
-  'BY': { cq: 24, itu: 44, cont: 'AS' }, 'BV': { cq: 24, itu: 44, cont: 'AS' },
-  'VU': { cq: 22, itu: 41, cont: 'AS' }, 
-  'DU': { cq: 27, itu: 50, cont: 'OC' }, '9M': { cq: 28, itu: 54, cont: 'AS' },
-  'HS': { cq: 26, itu: 49, cont: 'AS' }, 'XV': { cq: 26, itu: 49, cont: 'AS' },
-  // Oceania
-  'VK': { cq: 30, itu: 59, cont: 'OC' },
-  'ZL': { cq: 32, itu: 60, cont: 'OC' }, 'FK': { cq: 32, itu: 56, cont: 'OC' },
-  'VK9': { cq: 30, itu: 60, cont: 'OC' }, 'YB': { cq: 28, itu: 51, cont: 'OC' },
-  'KH6': { cq: 31, itu: 61, cont: 'OC' }, 'KH2': { cq: 27, itu: 64, cont: 'OC' },
-  // South America  
-  'LU': { cq: 13, itu: 14, cont: 'SA' }, 'PY': { cq: 11, itu: 15, cont: 'SA' },
-  'CE': { cq: 12, itu: 14, cont: 'SA' }, 'CX': { cq: 13, itu: 14, cont: 'SA' },
-  'HK': { cq: 9, itu: 12, cont: 'SA' }, 'YV': { cq: 9, itu: 12, cont: 'SA' },
-  'HC': { cq: 10, itu: 12, cont: 'SA' }, 'OA': { cq: 10, itu: 12, cont: 'SA' },
-  // Africa
-  'ZS': { cq: 38, itu: 57, cont: 'AF' }, '5N': { cq: 35, itu: 46, cont: 'AF' },
-  'EA8': { cq: 33, itu: 36, cont: 'AF' }, 'CN': { cq: 33, itu: 37, cont: 'AF' },
-  '7X': { cq: 33, itu: 37, cont: 'AF' }, 'SU': { cq: 34, itu: 38, cont: 'AF' },
-  'ST': { cq: 34, itu: 47, cont: 'AF' }, 'ET': { cq: 37, itu: 48, cont: 'AF' },
-  '5Z': { cq: 37, itu: 48, cont: 'AF' }, '5H': { cq: 37, itu: 53, cont: 'AF' },
-  // Caribbean
-  'VP5': { cq: 8, itu: 11, cont: 'NA' }, 'PJ': { cq: 9, itu: 11, cont: 'SA' },
-  'HI': { cq: 8, itu: 11, cont: 'NA' }, 'CO': { cq: 8, itu: 11, cont: 'NA' },
-  'KP4': { cq: 8, itu: 11, cont: 'NA' }, 'FG': { cq: 8, itu: 11, cont: 'NA' },
-  // Antarctica
-  'DP0': { cq: 38, itu: 67, cont: 'AN' }, 'VP8': { cq: 13, itu: 73, cont: 'AN' },
-  'KC4': { cq: 13, itu: 67, cont: 'AN' }
-};
 
-/**
- * Fallback mapping based on first character
- */
-const FALLBACK_MAP = {
-  'A': { cq: 21, itu: 39, cont: 'AS' },
-  'B': { cq: 24, itu: 44, cont: 'AS' },
-  'C': { cq: 14, itu: 27, cont: 'EU' },
-  'D': { cq: 14, itu: 28, cont: 'EU' },
-  'E': { cq: 14, itu: 27, cont: 'EU' },
-  'F': { cq: 14, itu: 27, cont: 'EU' },
-  'G': { cq: 14, itu: 27, cont: 'EU' },
-  'H': { cq: 14, itu: 27, cont: 'EU' },
-  'I': { cq: 15, itu: 28, cont: 'EU' },
-  'J': { cq: 25, itu: 45, cont: 'AS' },
-  'K': { cq: 5, itu: 8, cont: 'NA' },
-  'L': { cq: 13, itu: 14, cont: 'SA' },
-  'M': { cq: 14, itu: 27, cont: 'EU' },
-  'N': { cq: 5, itu: 8, cont: 'NA' },
-  'O': { cq: 15, itu: 18, cont: 'EU' },
-  'P': { cq: 11, itu: 15, cont: 'SA' },
-  'R': { cq: 16, itu: 29, cont: 'EU' },
-  'S': { cq: 15, itu: 28, cont: 'EU' },
-  'T': { cq: 37, itu: 48, cont: 'AF' },
-  'U': { cq: 16, itu: 29, cont: 'EU' },
-  'V': { cq: 5, itu: 4, cont: 'NA' },
-  'W': { cq: 5, itu: 8, cont: 'NA' },
-  'X': { cq: 6, itu: 10, cont: 'NA' },
-  'Y': { cq: 15, itu: 28, cont: 'EU' },
-  'Z': { cq: 38, itu: 57, cont: 'AF' }
-};
+const matchPrimaryPrefix = (callsign) => entities.filter((item) =>  callsign.startsWith(item.primary_prefix));
 
-/**
- * Get CQ zone, ITU zone, and continent from callsign
- */
-export const getCallsignInfo = (call) => {
-  if (!call) return { cqZone: null, ituZone: null, continent: null };
-  const upper = call.toUpperCase();
-  
-  // Try to match prefix (longest match first)
-  for (let len = 4; len >= 1; len--) {
-    const prefix = upper.substring(0, len);
-    if (PREFIX_MAP[prefix]) {
-      return { 
-        cqZone: PREFIX_MAP[prefix].cq, 
-        ituZone: PREFIX_MAP[prefix].itu, 
-        continent: PREFIX_MAP[prefix].cont 
-      };
-    }
-  }
-  
-  // Fallback based on first character
-  const firstChar = upper[0];
-  if (FALLBACK_MAP[firstChar]) {
-    return {
-      cqZone: FALLBACK_MAP[firstChar].cq,
-      ituZone: FALLBACK_MAP[firstChar].itu,
-      continent: FALLBACK_MAP[firstChar].cont
-    };
-  }
-  
-  return { cqZone: null, ituZone: null, continent: null };
-};
+const matchSecondaryPrefix = (callsign) => entities.filter((item) => {
+    const match = item.additional_prefixes.filter((prefix) => callsign.startsWith(prefix));
+    return(match && match.length > 0);
+})
+
+const getAllMatches = (callsign) => {
+    const primary = matchPrimaryPrefix(callsign);
+    const secondaries = matchSecondaryPrefix(callsign);
+    let allMatches = primary.concat(secondaries);
+    allMatches = [...new Set(allMatches)];
+    return allMatches;
+}
+
+const findLongestMatch = (callsign, allMatches) => {
+    let longestPrefix = "";
+    let matchWithLongestPrefix = {};
+
+    allMatches.forEach(item => {
+        if(callsign.startsWith(item.primary_prefix) && item.primary_prefix.length > longestPrefix.length) {
+            longestPrefix = item.primary_prefix;
+            matchWithLongestPrefix = item;
+        }
+
+        item.additional_prefixes.forEach(addl => {
+            if(callsign.startsWith(addl) && addl.length > longestPrefix.length) {
+                longestPrefix = addl;
+                matchWithLongestPrefix = item;
+            }
+        });
+    });
+
+    return matchWithLongestPrefix;
+}
+
+export const getCallsignInfo = (callsign) => {
+    const allMatches = getAllMatches(callsign);
+    return findLongestMatch(callsign, allMatches);
+}
 
 export default {
   HF_BANDS,
@@ -226,6 +138,5 @@ export default {
   getBandFromFreq,
   getBandColor,
   detectMode,
-  PREFIX_MAP,
   getCallsignInfo
 };

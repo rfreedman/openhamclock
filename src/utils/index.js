@@ -42,7 +42,7 @@ export {
   getBandFromFreq,
   getBandColor,
   detectMode,
-  PREFIX_MAP,
+  // PREFIX_MAP,
   getCallsignInfo
 } from './callsign.js';
 export {filterDXPaths} from "./dxClusterFilters";
