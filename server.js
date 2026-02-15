@@ -2133,6 +2133,7 @@ app.get('/api/pota/spots', async (req, res) => {
   try {
     // Return cached data if fresh
     if (potaCache.data && (Date.now() - potaCache.timestamp) < POTA_CACHE_TTL) {
+      res.set('Cache-Control', 'public, max-age=60, s-maxage=60');
       return res.json(potaCache.data);
     }
     
@@ -2173,6 +2174,7 @@ app.get('/api/sota/spots', async (req, res) => {
   try {
     // Return cached data if fresh
     if (sotaCache.data && (Date.now() - sotaCache.timestamp) < SOTA_CACHE_TTL) {
+      res.set('Cache-Control', 'public, max-age=90, s-maxage=90');
       return res.json(sotaCache.data);
     }
     
