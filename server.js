@@ -40,6 +40,10 @@ const APP_VERSION = (() => {
 
 // Global safety nets — log but don't crash on stray errors (e.g. MQTT connack timeout)
 process.on('uncaughtException', (err) => {
+  // BadRequestError: request aborted — benign, just a client disconnecting mid-request
+  if (err.type === 'request.aborted' || (err.name === 'BadRequestError' && err.message === 'request aborted')) {
+    return; // Silently ignore — not a real crash
+  }
   console.error(`[FATAL] Uncaught exception: ${err.message}`);
   console.error(err.stack);
   // Exit on truly fatal errors, but give time to flush logs
@@ -1366,7 +1370,7 @@ setInterval(() => {
     spotBufferEntries: pskMqtt.spotBuffer.size,
     spotBufferTotal: [...pskMqtt.spotBuffer.values()].reduce((n, b) => n + b.length, 0),
   };
-  console.log(`[Memory] RSS=${mb(mem.rss)}MB Heap=${mb(mem.heapUsed)}/${mb(mem.heapTotal)}MB External=${mb(mem.external)}MB | MQTT: ${mqttStats.sseClients} SSE clients, ${mqttStats.subscribedCalls} calls, ${mqttStats.recentSpotsTotal} recent spots (${mqttStats.recentSpotsEntries} entries), ${mqttStats.spotBufferTotal} buffered | GeoIP=${geoIPCache.size} MySpots=${mySpotsCache.size} AllTimeIPs=${allTimeIPSet.size}`);
+  console.log(`[Memory] RSS=${mb(mem.rss)}MB Heap=${mb(mem.heapUsed)}/${mb(mem.heapTotal)}MB External=${mb(mem.external)}MB | MQTT: ${mqttStats.sseClients} SSE clients, ${mqttStats.subscribedCalls} calls, ${mqttStats.recentSpotsTotal} recent spots (${mqttStats.recentSpotsEntries} entries), ${mqttStats.spotBufferTotal} buffered | GeoIP=${geoIPCache.size} CallLookup=${callsignLookupCache?.size || 0} MySpots=${mySpotsCache.size} AllTimeIPs=${allTimeIPSet.size}`);
 }, 15 * 60 * 1000);
 
 // ============================================
@@ -2878,7 +2882,7 @@ app.get('/api/dxcluster/paths', async (req, res) => {
           const lonMatch = text.match(/<lng>([^<]+)<\/lng>/);
           const countryMatch = text.match(/<n>([^<]+)<\/name>/);
           if (latMatch && lonMatch) {
-            callsignLookupCache.set(call, {
+            cacheCallsignLookup(call, {
               data: {
                 callsign: call,
                 lat: parseFloat(latMatch[1]),
@@ -3041,6 +3045,39 @@ app.get('/api/dxcluster/paths', async (req, res) => {
 // Cache for callsign lookups - callsigns don't change location often
 const callsignLookupCache = new Map(); // key = callsign, value = { data, timestamp }
 const CALLSIGN_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const CALLSIGN_CACHE_MAX = 10000; // Hard cap — evict oldest when exceeded
+
+// Periodic cleanup: purge expired entries every 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  let purged = 0;
+  for (const [call, entry] of callsignLookupCache) {
+    if (now - entry.timestamp > CALLSIGN_CACHE_TTL) {
+      callsignLookupCache.delete(call);
+      purged++;
+    }
+  }
+  // If still over cap after TTL purge, evict oldest entries
+  if (callsignLookupCache.size > CALLSIGN_CACHE_MAX) {
+    const sorted = [...callsignLookupCache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toRemove = sorted.slice(0, callsignLookupCache.size - CALLSIGN_CACHE_MAX);
+    for (const [call] of toRemove) {
+      callsignLookupCache.delete(call);
+      purged++;
+    }
+  }
+  if (purged > 0) logDebug(`[Cache] Callsign lookup: purged ${purged} expired/excess entries, ${callsignLookupCache.size} remaining`);
+}, 30 * 60 * 1000);
+
+// Helper: add to cache with size enforcement — prevents unbounded growth between cleanups
+function cacheCallsignLookup(call, data) {
+  if (callsignLookupCache.size >= CALLSIGN_CACHE_MAX && !callsignLookupCache.has(call)) {
+    // Evict oldest entry to make room
+    const oldest = callsignLookupCache.keys().next().value;
+    if (oldest) callsignLookupCache.delete(oldest);
+  }
+  callsignLookupCache.set(call, data);
+}
 
 // ── Extract base callsign from decorated/portable calls ──
 // Strips prefixes (5Z4/OZ6ABL → OZ6ABL) and suffixes (UA1TAN/M → UA1TAN)
@@ -3103,7 +3140,9 @@ const qrzSession = {
   password: CONFIG._qrzPassword || '',
   loginInFlight: null,  // Dedup concurrent login attempts
   lookupCount: 0,
-  lastError: null
+  lastError: null,
+  authFailedUntil: 0,  // Cooldown after credential failures — don't retry until this timestamp
+  authFailCooldown: 60 * 60 * 1000  // 1 hour cooldown after bad credentials
 };
 
 // Persist QRZ credentials to a file so they survive restarts (set via Settings UI)
@@ -3141,6 +3180,11 @@ function isQRZConfigured() {
 async function qrzLogin() {
   if (!isQRZConfigured()) return null;
   
+  // Don't retry if credentials failed recently — avoids hammering QRZ with bad creds
+  if (Date.now() < qrzSession.authFailedUntil) {
+    return null;
+  }
+  
   // Dedup: if a login is already in-flight, piggyback on it
   if (qrzSession.loginInFlight) return qrzSession.loginInFlight;
   
@@ -3163,7 +3207,13 @@ async function qrzLogin() {
       
       if (errorMatch) {
         qrzSession.lastError = errorMatch[1];
-        console.error(`[QRZ] Login failed: ${errorMatch[1]}`);
+        // Credential failures get a long cooldown — no point retrying until creds change
+        if (errorMatch[1].includes('incorrect') || errorMatch[1].includes('Invalid') || errorMatch[1].includes('denied')) {
+          qrzSession.authFailedUntil = Date.now() + qrzSession.authFailCooldown;
+          console.error(`[QRZ] Login failed: ${errorMatch[1]} — suppressing retries for 1 hour`);
+        } else {
+          console.error(`[QRZ] Login failed: ${errorMatch[1]}`);
+        }
         return null;
       }
       
@@ -3171,6 +3221,7 @@ async function qrzLogin() {
         qrzSession.key = keyMatch[1];
         qrzSession.expiry = Date.now() + qrzSession.maxAge;
         qrzSession.lastError = null;
+        qrzSession.authFailedUntil = 0; // Clear cooldown on success
         const subInfo = subExpMatch ? subExpMatch[1] : 'unknown';
         console.log(`[QRZ] Session established (subscription: ${subInfo})`);
         return qrzSession.key;
@@ -3320,6 +3371,7 @@ app.get('/api/qrz/status', (req, res) => {
     hasSession: !!qrzSession.key,
     lookupCount: qrzSession.lookupCount,
     lastError: qrzSession.lastError,
+    authCooldownRemaining: qrzSession.authFailedUntil > Date.now() ? Math.round((qrzSession.authFailedUntil - Date.now()) / 60000) : 0,
     source: CONFIG._qrzUsername ? 'env' : (qrzSession.username ? 'settings' : 'none')
   });
 });
@@ -3339,6 +3391,7 @@ app.post('/api/qrz/configure', writeLimiter, async (req, res) => {
   qrzSession.password = password.trim();
   qrzSession.key = null;
   qrzSession.expiry = 0;
+  qrzSession.authFailedUntil = 0; // Clear cooldown — user is providing new credentials
   
   const key = await qrzLogin();
   
@@ -3378,6 +3431,7 @@ app.post('/api/qrz/remove', writeLimiter, (req, res) => {
   qrzSession.expiry = 0;
   qrzSession.lookupCount = 0;
   qrzSession.lastError = null;
+  qrzSession.authFailedUntil = 0;
   
   try {
     if (fs.existsSync(QRZ_CREDS_FILE)) {
@@ -3443,7 +3497,7 @@ app.get('/api/callsign/:call', async (req, res) => {
     
     if (result) {
       logDebug(`[Callsign Lookup] ${callsign}: ${result.source} -> ${result.lat?.toFixed(2)}, ${result.lon?.toFixed(2)}`);
-      callsignLookupCache.set(callsign, { data: result, timestamp: now });
+      cacheCallsignLookup(callsign, { data: result, timestamp: now });
       return res.json(result);
     }
     
@@ -3455,7 +3509,7 @@ app.get('/api/callsign/:call', async (req, res) => {
     // Still try prefix estimate on error
     const estimated = estimateLocationFromPrefix(callsign);
     if (estimated) {
-      callsignLookupCache.set(callsign, { data: { ...estimated, source: 'prefix' }, timestamp: now });
+      cacheCallsignLookup(callsign, { data: { ...estimated, source: 'prefix' }, timestamp: now });
       return res.json({ ...estimated, source: 'prefix' });
     }
     res.status(500).json({ error: 'Lookup failed' });
@@ -8560,7 +8614,7 @@ function handleWSJTXMessage(msg, state) {
               const lonMatch = text.match(/<lng>([^<]+)<\/lng>/);
               const countryMatch = text.match(/<n>([^<]+)<\/name>/);
               if (latMatch && lonMatch) {
-                callsignLookupCache.set(targetCall, {
+                cacheCallsignLookup(targetCall, {
                   data: {
                     callsign: targetCall,
                     lat: parseFloat(latMatch[1]),
